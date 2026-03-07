@@ -2,10 +2,10 @@
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "pnpm install"
+    "buildCommand": "pnpm install && cd packages/mcp-gdal && npx tsc --outDir dist --esModuleInterop --module commonjs --target es2020 --moduleResolution node --skipLibCheck src/index.ts"
   },
   "deploy": {
-    "startCommand": "node_modules/.bin/tsx src/index.ts",
+    "startCommand": "node packages/mcp-gdal/dist/index.js",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
