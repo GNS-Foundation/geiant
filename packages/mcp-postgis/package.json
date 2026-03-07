@@ -1,0 +1,22 @@
+{
+  "name": "@geiant/mcp-postgis",
+  "version": "0.1.0",
+  "description": "GEIANT PostGIS MCP Server — the first spatial MCP server",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@geiant/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@supabase/supabase-js": "^2.49.8",
+    "h3-js": "^4.4.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
+  }
+}

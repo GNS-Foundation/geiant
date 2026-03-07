@@ -1,0 +1,22 @@
+{
+    "name": "@geiant/mcp-gdal",
+    "version": "0.1.0",
+    "description": "GEIANT GDAL MCP Server — raster analysis, reprojection, format conversion for AI agents",
+    "type": "module",
+    "main": "src/index.ts",
+    "scripts": {
+        "start": "tsx src/index.ts",
+        "dev": "tsx watch src/index.ts"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.27.1",
+        "gdal-async": "^3.12.2",
+        "h3-js": "^4.3.3",
+        "zod": "^3.25.76",
+        "@geiant/core": "workspace:*"
+    },
+    "devDependencies": {
+        "tsx": "^4.19.3",
+        "typescript": "^5.8.3"
+    }
+}
