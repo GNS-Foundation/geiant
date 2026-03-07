@@ -5,4 +5,4 @@ COREPACK_ENABLE_STRICT = "0"
 nixPkgs = ["nodejs_22"]
 
 [phases.install]
-cmds = ["npm install -g pnpm@9.15.9 && pnpm install --no-frozen-lockfile"]
+cmds = ["npm install -g pnpm@9.15.9 && $(npm bin -g)/pnpm install --no-frozen-lockfile"]
