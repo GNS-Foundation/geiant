@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "GEIANT — Geo-Identity Agent Navigation & Tasking. The first AI orchestrator that knows where it is.",
   "private": true,
+  "packageManager": "pnpm@10.30.3",
   "workspaces": [
     "packages/*",
     "apps/*"
