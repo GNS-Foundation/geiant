@@ -1,17 +1,15 @@
 #!/usr/bin/env tsx
-"use strict";
 // =============================================================================
 // GEIANT — DATASET GENERATOR CLI
 // Run: tsx src/synthetic/generate.ts [output-dir]
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-const exporter_1 = require("./export/exporter");
-const path_1 = require("path");
-const outputDir = process.argv[2] ?? (0, path_1.join)(process.cwd(), 'dataset-output');
+import { runExportPipeline } from './export/exporter.js';
+import { join } from 'path';
+const outputDir = process.argv[2] ?? join(process.cwd(), 'dataset-output');
 console.log('\n🐜 GEIANT — Synthetic Dataset Generator');
 console.log('   Geo-Identity Agent Navigation & Tasking\n');
 console.log(`📁 Output directory: ${outputDir}\n`);
-const manifest = (0, exporter_1.runExportPipeline)(outputDir);
+const manifest = runExportPipeline(outputDir);
 console.log('✅ Dataset generated successfully!\n');
 console.log('📊 Summary:');
 console.log(`   Total records  : ${manifest.total_records}`);

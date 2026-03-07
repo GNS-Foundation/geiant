@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — SUPABASE AGENT REGISTRY
 // Phase 1: Persistent registry backed by Supabase PostgreSQL.
@@ -13,11 +12,8 @@
 //   - graceful fallback: if Supabase is unreachable, cached data serves reads
 //   - all writes are synchronous — registration must succeed before routing
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.SupabaseRegistry = void 0;
-exports.createSupabaseRegistry = createSupabaseRegistry;
-const supabase_js_1 = require("@supabase/supabase-js");
-const identity_js_1 = require("../agent/identity.js");
+import { createClient } from '@supabase/supabase-js';
+import { isInTerritory, tierSatisfies, validateManifestStructure } from '../agent/identity.js';
 // ---------------------------------------------------------------------------
 // DB row → AntManifest
 // ---------------------------------------------------------------------------
@@ -65,14 +61,14 @@ function manifestToRow(manifest) {
 // ---------------------------------------------------------------------------
 // SupabaseRegistry
 // ---------------------------------------------------------------------------
-class SupabaseRegistry {
+export class SupabaseRegistry {
     client;
     cache = new Map();
     cacheTtlMs;
     listCache = null;
     constructor(supabaseUrl, serviceRoleKey, cacheTtlMs = 60_000 // 60 second TTL
     ) {
-        this.client = (0, supabase_js_1.createClient)(supabaseUrl, serviceRoleKey, {
+        this.client = createClient(supabaseUrl, serviceRoleKey, {
             auth: { persistSession: false },
         });
         this.cacheTtlMs = cacheTtlMs;
@@ -82,7 +78,7 @@ class SupabaseRegistry {
     // register
     // ---------------------------------------------------------------------------
     async register(manifest) {
-        const { valid, errors } = (0, identity_js_1.validateManifestStructure)(manifest);
+        const { valid, errors } = validateManifestStructure(manifest);
         if (!valid) {
             throw new Error(`Invalid manifest: ${errors.join(', ')}`);
         }
@@ -155,8 +151,8 @@ class SupabaseRegistry {
         return (data ?? [])
             .map(rowToManifest)
             .filter(ant => {
-            const tierOk = (0, identity_js_1.tierSatisfies)(ant.identity.tier, minTier);
-            const territoryOk = (0, identity_js_1.isInTerritory)(cell, ant.identity.territoryCells, true);
+            const tierOk = tierSatisfies(ant.identity.tier, minTier);
+            const territoryOk = isInTerritory(cell, ant.identity.territoryCells, true);
             return tierOk && territoryOk;
         });
     }
@@ -212,11 +208,10 @@ class SupabaseRegistry {
         return !error;
     }
 }
-exports.SupabaseRegistry = SupabaseRegistry;
 // ---------------------------------------------------------------------------
 // Factory — create SupabaseRegistry from env vars
 // ---------------------------------------------------------------------------
-function createSupabaseRegistry() {
+export function createSupabaseRegistry() {
     const url = process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) {

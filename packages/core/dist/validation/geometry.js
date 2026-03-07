@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — GEOMETRY VALIDATION LAYER
 // Deterministic geometry guardrails — catches LLM coordinate hallucinations
@@ -17,12 +16,6 @@
 //   5. Empty geometry         — no zero-coordinate features
 //   6. Duplicate points       — consecutive identical coordinates
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.validateGeometries = validateGeometries;
-exports.validateFeature = validateFeature;
-exports.validateGeometry = validateGeometry;
-exports.looksTransposed = looksTransposed;
-exports.formatValidationError = formatValidationError;
 // ---------------------------------------------------------------------------
 // Main validation entry point
 // ---------------------------------------------------------------------------
@@ -30,7 +23,7 @@ exports.formatValidationError = formatValidationError;
  * Validate an array of spatial features.
  * Returns on first invalid feature (fail-fast).
  */
-function validateGeometries(features) {
+export function validateGeometries(features) {
     for (let i = 0; i < features.length; i++) {
         const result = validateFeature(features[i], i);
         if (!result.valid)
@@ -38,7 +31,7 @@ function validateGeometries(features) {
     }
     return { valid: true };
 }
-function validateFeature(feature, index = 0) {
+export function validateFeature(feature, index = 0) {
     if (!feature.geometry) {
         return {
             valid: false,
@@ -49,7 +42,7 @@ function validateFeature(feature, index = 0) {
     }
     return validateGeometry(feature.geometry, index);
 }
-function validateGeometry(geom, featureIndex = 0) {
+export function validateGeometry(geom, featureIndex = 0) {
     switch (geom.type) {
         case 'Point':
             return validatePoint(geom.coordinates, featureIndex);
@@ -230,12 +223,12 @@ function segmentsIntersect(p1, p2, p3, p4) {
 // Exported utilities
 // ---------------------------------------------------------------------------
 /** Quick check — does this look like coordinates were swapped? */
-function looksTransposed(lng, lat) {
+export function looksTransposed(lng, lat) {
     // If passed value is plausible as lat but not as lng, likely swapped
     return (lng > 90 || lng < -90) && lat >= -90 && lat <= 90;
 }
 /** Format a ValidationResult as a structured error message for agent feedback */
-function formatValidationError(result) {
+export function formatValidationError(result) {
     if (result.valid)
         return 'Geometry is valid.';
     return [

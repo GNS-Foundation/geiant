@@ -3,18 +3,18 @@
 // =============================================================================
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { repairGeometry, repairFeatures, convexHull } from '../validation/geometry_repair';
-import { resolveHandoff } from '../router/handoff';
-import { InMemoryRegistry, seedDevRegistry } from '../registry/registry';
-import { resolveJurisdiction } from '../router/jurisdiction';
-import { GeiantRouter } from '../router/router';
+import { repairGeometry, repairFeatures, convexHull } from '../validation/geometry_repair.js';
+import { resolveHandoff } from '../router/handoff.js';
+import { InMemoryRegistry, seedDevRegistry } from '../registry/registry.js';
+import { resolveJurisdiction } from '../router/jurisdiction.js';
+import { GeiantRouter } from '../router/router.js';
 import type {
   SpatialGeometry,
   SpatialFeature,
   GeiantTask,
   DelegationCert,
   HandoffRoutingDecision,
-} from '../types/index';
+} from '../types/index.js';
 
 // ---------------------------------------------------------------------------
 // Test fixtures

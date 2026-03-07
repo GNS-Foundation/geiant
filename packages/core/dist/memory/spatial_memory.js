@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — SPATIAL MEMORY
 // H3-indexed versioned geometry DAG.
@@ -26,16 +25,11 @@
 //   Phase 1:        Supabase-backed with PostGIS spatial queries.
 //   Phase 2:        Distributed graph with GNS-node integration.
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.GeometryValidationError = exports.SpatialMemoryGraph = void 0;
-exports.verifyAgentSignature = verifyAgentSignature;
-exports.getSpatialMemory = getSpatialMemory;
-exports.resetSpatialMemory = resetSpatialMemory;
-const crypto_1 = require("crypto");
-const ed25519_1 = require("../crypto/ed25519");
-const h3_js_1 = require("h3-js");
-const geometry_1 = require("../validation/geometry");
-class SpatialMemoryGraph {
+import { createHash } from 'crypto';
+import { signHash, verifyHash } from '../crypto/ed25519.js';
+import { latLngToCell, cellToLatLng, gridDisk } from 'h3-js';
+import { validateGeometries } from '../validation/geometry.js';
+export class SpatialMemoryGraph {
     // Primary store: hash → node
     nodes = new Map();
     // H3 cell index: cell → ordered list of node hashes (newest first)
@@ -56,7 +50,7 @@ class SpatialMemoryGraph {
      */
     async create(params) {
         // Geometry guard — reject invalid geometry at the memory layer too
-        const validation = (0, geometry_1.validateGeometries)([params.feature]);
+        const validation = validateGeometries([params.feature]);
         if (!validation.valid) {
             throw new GeometryValidationError(`Cannot store invalid geometry: ${validation.errorMessage}`, validation);
         }
@@ -96,7 +90,7 @@ class SpatialMemoryGraph {
             throw new Error(`Feature '${params.featureId}' not found in spatial memory. Use create() first.`);
         }
         // Geometry guard
-        const validation = (0, geometry_1.validateGeometries)([params.newFeature]);
+        const validation = validateGeometries([params.newFeature]);
         if (!validation.valid) {
             throw new GeometryValidationError(`[GEIANT GeometryGuard] Mutation rejected — invalid geometry in step ${params.mutationType}: ${validation.errorMessage}`, validation);
         }
@@ -275,11 +269,10 @@ class SpatialMemoryGraph {
         this.agentIndex.set(node.agentPublicKey, [...agentNodes, node.hash]);
     }
 }
-exports.SpatialMemoryGraph = SpatialMemoryGraph;
 // ---------------------------------------------------------------------------
 // Custom error
 // ---------------------------------------------------------------------------
-class GeometryValidationError extends Error {
+export class GeometryValidationError extends Error {
     validationResult;
     constructor(message, validationResult) {
         super(message);
@@ -287,7 +280,6 @@ class GeometryValidationError extends Error {
         this.name = 'GeometryValidationError';
     }
 }
-exports.GeometryValidationError = GeometryValidationError;
 // ---------------------------------------------------------------------------
 // Geometry utilities
 // ---------------------------------------------------------------------------
@@ -301,10 +293,10 @@ function extractH3Cells(feature, resolution) {
     const coords = extractAllCoordinates(feature.geometry);
     for (const [lng, lat] of coords) {
         if (isFinite(lat) && isFinite(lng)) {
-            const cell = (0, h3_js_1.latLngToCell)(lat, lng, resolution);
+            const cell = latLngToCell(lat, lng, resolution);
             cells.add(cell);
             // Add k=1 ring to ensure coverage at boundaries
-            (0, h3_js_1.gridDisk)(cell, 1).forEach(c => cells.add(c));
+            gridDisk(cell, 1).forEach(c => cells.add(c));
         }
     }
     return Array.from(cells);
@@ -339,7 +331,7 @@ function detectBoundaryCrossing(oldCells, newCells) {
     const centroid = (cells) => {
         let sumLat = 0, sumLng = 0;
         for (const cell of cells) {
-            const [lat, lng] = (0, h3_js_1.cellToLatLng)(cell);
+            const [lat, lng] = cellToLatLng(cell);
             sumLat += lat;
             sumLng += lng;
         }
@@ -361,7 +353,7 @@ function detectBoundaryCrossing(oldCells, newCells) {
 function computeNodeHash(node) {
     const { hash: _h, agentSignature: _s, ...data } = node;
     const canonical = JSON.stringify(data, Object.keys(data).sort());
-    return (0, crypto_1.createHash)('sha256').update(canonical).digest('hex');
+    return createHash('sha256').update(canonical).digest('hex');
 }
 /**
  * Ed25519 signing for agent operations.
@@ -377,25 +369,25 @@ function agentSign(agentPublicKey, hash) {
         return '0'.repeat(128);
     // Phase 0: derive a dev private key deterministically from public key
     // This means signatures are verifiable given the public key
-    const devPrivateKey = (0, crypto_1.createHash)('sha256')
+    const devPrivateKey = createHash('sha256')
         .update(`dev-signing-key:${agentPublicKey}`)
         .digest('hex');
-    return (0, ed25519_1.signHash)(hash, devPrivateKey);
+    return signHash(hash, devPrivateKey);
 }
 /**
  * Verify an agent signature for a node hash.
  * Phase 0: uses the deterministic dev private key derivation.
  */
-function verifyAgentSignature(agentPublicKey, hash, signature) {
+export function verifyAgentSignature(agentPublicKey, hash, signature) {
     if (!hash || !signature)
         return false;
-    const devPrivateKey = (0, crypto_1.createHash)('sha256')
+    const devPrivateKey = createHash('sha256')
         .update(`dev-signing-key:${agentPublicKey}`)
         .digest('hex');
     // Derive the expected public key from the dev private key
     const { publicKeyFromPrivate } = require('../crypto/ed25519');
     const devPublicKey = publicKeyFromPrivate(devPrivateKey);
-    return (0, ed25519_1.verifyHash)(hash, signature, devPublicKey);
+    return verifyHash(hash, signature, devPublicKey);
 }
 // ---------------------------------------------------------------------------
 // Breadcrumb factory
@@ -411,7 +403,7 @@ function buildBreadcrumb(node, taskId, eventType, delegationCertHash) {
         eventType,
         delegationCertHash,
         prevBreadcrumbHash: undefined,
-        hash: (0, crypto_1.createHash)('sha256').update(id + node.hash).digest('hex'),
+        hash: createHash('sha256').update(id + node.hash).digest('hex'),
         agentSignature: agentSign(node.agentPublicKey, node.hash),
         timestamp: node.timestamp,
     };
@@ -420,12 +412,12 @@ function buildBreadcrumb(node, taskId, eventType, delegationCertHash) {
 // Singleton
 // ---------------------------------------------------------------------------
 let _graph = null;
-function getSpatialMemory() {
+export function getSpatialMemory() {
     if (!_graph)
         _graph = new SpatialMemoryGraph();
     return _graph;
 }
-function resetSpatialMemory() {
+export function resetSpatialMemory() {
     _graph = new SpatialMemoryGraph();
 }
 //# sourceMappingURL=spatial_memory.js.map

@@ -12,8 +12,8 @@
 // =============================================================================
 
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
-import { SupabaseRegistry } from '../registry/supabase_registry';
-import { AntManifest } from '../types/index';
+import { SupabaseRegistry } from '../registry/supabase_registry.js';
+import { AntManifest } from '../types/index.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;

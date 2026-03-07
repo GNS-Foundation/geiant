@@ -17,7 +17,7 @@ import {
   isValidSignature,
   isStubSignature,
   canonicalMessage,
-} from '../crypto/ed25519';
+} from '../crypto/ed25519.js';
 
 // ---------------------------------------------------------------------------
 // Key generation

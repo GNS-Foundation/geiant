@@ -43,7 +43,7 @@ import { scoreAntFitness, tierSatisfies } from '../agent/identity.js';
 import { resolveJurisdiction } from './jurisdiction.js';
 import { resolveHandoff, formatHandoffSummary } from './handoff.js';
 import type { AgentRegistry } from '../registry/registry.js';
-import { verifyMessage, isValidPublicKey, isValidSignature } from '../crypto/ed25519';
+import { verifyMessage, isValidPublicKey, isValidSignature } from '../crypto/ed25519.js';
 import type { HandoffRoutingDecision, GeometryRepairResult } from '../types/index.js';
 
 // ---------------------------------------------------------------------------

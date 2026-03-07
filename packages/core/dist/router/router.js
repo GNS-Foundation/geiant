@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — GEOSPATIAL ROUTER
 // The central dispatch engine. Routes tasks to ants via 4 sequential checks.
@@ -28,19 +27,17 @@
 // This is what makes GEIANT fundamentally different from LangChain:
 // the router is a compliance enforcement point, not a load balancer.
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.GeiantRouter = void 0;
-const geometry_js_1 = require("../validation/geometry.js");
-const geometry_repair_js_1 = require("../validation/geometry_repair.js");
-const delegation_js_1 = require("../validation/delegation.js");
-const identity_js_1 = require("../agent/identity.js");
-const jurisdiction_js_1 = require("./jurisdiction.js");
-const handoff_js_1 = require("./handoff.js");
-const ed25519_1 = require("../crypto/ed25519");
+import { validateGeometries } from '../validation/geometry.js';
+import { repairFeatures, formatRepairFeedback } from '../validation/geometry_repair.js';
+import { validateDelegation, hashCert } from '../validation/delegation.js';
+import { scoreAntFitness } from '../agent/identity.js';
+import { resolveJurisdiction } from './jurisdiction.js';
+import { resolveHandoff, formatHandoffSummary } from './handoff.js';
+import { verifyMessage, isValidPublicKey, isValidSignature } from '../crypto/ed25519.js';
 // ---------------------------------------------------------------------------
 // Router class
 // ---------------------------------------------------------------------------
-class GeiantRouter {
+export class GeiantRouter {
     registry;
     constructor(registry) {
         this.registry = registry;
@@ -59,12 +56,12 @@ class GeiantRouter {
             return this.reject(task, 'signature_invalid', 'Task signature verification failed', startedAt);
         }
         // ── Gate 2: Jurisdiction resolution ─────────────────────────────────────
-        const jurisdiction = await (0, jurisdiction_js_1.resolveJurisdiction)(task.originCell);
+        const jurisdiction = await resolveJurisdiction(task.originCell);
         if (!jurisdiction) {
             return this.reject(task, 'no_jurisdiction', `Cannot resolve jurisdiction for H3 cell ${task.originCell}`, startedAt);
         }
         // ── Gate 3: Delegation chain verification ────────────────────────────────
-        const delegationResult = (0, delegation_js_1.validateDelegation)(task.delegationCert, task);
+        const delegationResult = validateDelegation(task.delegationCert, task);
         if (!delegationResult.valid) {
             return this.reject(task, 'invalid_delegation', delegationResult.errorReason, startedAt, {
                 jurisdiction,
@@ -76,16 +73,16 @@ class GeiantRouter {
         let geometryRepairs;
         let geometryRepaired = false;
         if (task.geometries && task.geometries.length > 0) {
-            const geomResult = (0, geometry_js_1.validateGeometries)(task.geometries);
+            const geomResult = validateGeometries(task.geometries);
             if (!geomResult.valid) {
                 // Attempt L2 self-healing before rejecting
-                const repairResult = (0, geometry_repair_js_1.repairFeatures)(task.geometries);
+                const repairResult = repairFeatures(task.geometries);
                 if (repairResult.allRepaired) {
                     // Repair succeeded — proceed with fixed geometries
                     activeGeometries = repairResult.repairedFeatures;
                     geometryRepairs = repairResult.repairs;
                     geometryRepaired = true;
-                    console.log((0, geometry_repair_js_1.formatRepairFeedback)(repairResult.repairs));
+                    console.log(formatRepairFeedback(repairResult.repairs));
                 }
                 else {
                     // Repair failed — reject with original error + repair attempt info
@@ -102,10 +99,10 @@ class GeiantRouter {
         if (candidates.length === 0) {
             // ── L1 Cross-Jurisdictional Hand-off ─────────────────────────────────
             // No ant in origin jurisdiction — try adjacent territories
-            const handoff = await (0, handoff_js_1.resolveHandoff)(task, jurisdiction, this.registry);
+            const handoff = await resolveHandoff(task, jurisdiction, this.registry);
             if (handoff.possible) {
-                console.log((0, handoff_js_1.formatHandoffSummary)(handoff));
-                const breadcrumb = buildBreadcrumb(task, handoff.receivingAnt, 'territory_boundary_crossed', (0, delegation_js_1.hashCert)(task.delegationCert));
+                console.log(formatHandoffSummary(handoff));
+                const breadcrumb = buildBreadcrumb(task, handoff.receivingAnt, 'territory_boundary_crossed', hashCert(task.delegationCert));
                 return {
                     taskId: task.id,
                     success: true,
@@ -129,7 +126,7 @@ class GeiantRouter {
         const scored = candidates
             .map(ant => ({
             ant,
-            score: (0, identity_js_1.scoreAntFitness)(ant, task.originCell, task.minTier),
+            score: scoreAntFitness(ant, task.originCell, task.minTier),
         }))
             .filter(s => s.score >= 0)
             .sort((a, b) => b.score - a.score);
@@ -138,7 +135,7 @@ class GeiantRouter {
         }
         const selectedAnt = scored[0].ant;
         // ── Build success routing decision ───────────────────────────────────────
-        const breadcrumb = buildBreadcrumb(task, selectedAnt, 'task_dispatched', (0, delegation_js_1.hashCert)(task.delegationCert));
+        const breadcrumb = buildBreadcrumb(task, selectedAnt, 'task_dispatched', hashCert(task.delegationCert));
         return {
             taskId: task.id,
             success: true,
@@ -154,7 +151,7 @@ class GeiantRouter {
     }
     // ── Private helpers ────────────────────────────────────────────────────────
     reject(task, reason, details, startedAt, partial) {
-        const breadcrumb = buildBreadcrumb(task, null, 'task_failed', task.delegationCert ? (0, delegation_js_1.hashCert)(task.delegationCert) : 'no_cert');
+        const breadcrumb = buildBreadcrumb(task, null, 'task_failed', task.delegationCert ? hashCert(task.delegationCert) : 'no_cert');
         return {
             taskId: task.id,
             success: false,
@@ -166,7 +163,6 @@ class GeiantRouter {
         };
     }
 }
-exports.GeiantRouter = GeiantRouter;
 // ---------------------------------------------------------------------------
 // Virtual breadcrumb factory
 // ---------------------------------------------------------------------------
@@ -199,8 +195,8 @@ function verifyTaskSignature(task) {
     if (!callerSignature || callerSignature.length === 0) {
         return process.env.NODE_ENV === 'development' || process.env.GEIANT_ENV === 'dev';
     }
-    if ((0, ed25519_1.isValidSignature)(callerSignature) && (0, ed25519_1.isValidPublicKey)(task.callerPublicKey ?? '')) {
-        return (0, ed25519_1.verifyMessage)(payload, callerSignature, task.callerPublicKey);
+    if (isValidSignature(callerSignature) && isValidPublicKey(task.callerPublicKey ?? '')) {
+        return verifyMessage(payload, callerSignature, task.callerPublicKey);
     }
     // Legacy stub signatures accepted in dev
     if (process.env.NODE_ENV === 'development' || process.env.GEIANT_ENV === 'dev') {

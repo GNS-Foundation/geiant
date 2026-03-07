@@ -27,7 +27,7 @@
 // =============================================================================
 
 import { createHash } from 'crypto';
-import { signHash, verifyHash } from '../crypto/ed25519';
+import { signHash, verifyHash } from '../crypto/ed25519.js';
 import { latLngToCell, cellToLatLng, gridDisk } from 'h3-js';
 import {
   SpatialMemoryNode,
@@ -36,8 +36,8 @@ import {
   H3Cell,
   VirtualBreadcrumb,
   BreadcrumbEventType,
-} from '../types/index';
-import { validateGeometries } from '../validation/geometry';
+} from '../types/index.js';
+import { validateGeometries } from '../validation/geometry.js';
 
 // ---------------------------------------------------------------------------
 // Spatial Memory Graph

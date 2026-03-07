@@ -1,22 +1,19 @@
-"use strict";
 // =============================================================================
 // GEIANT — DELEGATION CHAIN GENERATOR
 // Scenarios for human→agent authorization cert validation.
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateDelegationChainScenarios = generateDelegationChainScenarios;
-const h3_js_1 = require("h3-js");
-const uuid_1 = require("uuid");
+import { latLngToCell, gridDisk } from 'h3-js';
+import { v4 as uuid } from 'uuid';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const ROME_CELL = (0, h3_js_1.latLngToCell)(41.902, 12.496, 7);
-const MILAN_CELL = (0, h3_js_1.latLngToCell)(45.464, 9.190, 7);
-const ZURICH_CELL = (0, h3_js_1.latLngToCell)(47.376, 8.541, 7);
-const BERLIN_CELL = (0, h3_js_1.latLngToCell)(52.520, 13.405, 7);
-const ROME_SCOPE = (0, h3_js_1.gridDisk)((0, h3_js_1.latLngToCell)(41.902, 12.496, 5), 2);
-const MILAN_SCOPE = (0, h3_js_1.gridDisk)((0, h3_js_1.latLngToCell)(45.464, 9.190, 5), 2);
-const ZURICH_SCOPE = (0, h3_js_1.gridDisk)((0, h3_js_1.latLngToCell)(47.376, 8.541, 5), 2);
+const ROME_CELL = latLngToCell(41.902, 12.496, 7);
+const MILAN_CELL = latLngToCell(45.464, 9.190, 7);
+const ZURICH_CELL = latLngToCell(47.376, 8.541, 7);
+const BERLIN_CELL = latLngToCell(52.520, 13.405, 7);
+const ROME_SCOPE = gridDisk(latLngToCell(41.902, 12.496, 5), 2);
+const MILAN_SCOPE = gridDisk(latLngToCell(45.464, 9.190, 5), 2);
+const ZURICH_SCOPE = gridDisk(latLngToCell(47.376, 8.541, 5), 2);
 const NOW = new Date();
 const PAST = new Date(NOW.getTime() - 7 * 24 * 60 * 60 * 1000);
 const FUTURE = new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -36,7 +33,7 @@ function cert(humanHandle, agentHandle, scopeCells, scopeFacets, validFrom, vali
 }
 function delegScenario(description, originCell, facet, minTier, certObj, expectedOutcome, explanation, delegationValid, rejectionReason, difficulty, tags) {
     return {
-        id: (0, uuid_1.v4)(),
+        id: uuid(),
         family: 'delegation_chain',
         description,
         input: {
@@ -60,7 +57,7 @@ function delegScenario(description, originCell, facet, minTier, certObj, expecte
 // ---------------------------------------------------------------------------
 // Generate all delegation chain scenarios
 // ---------------------------------------------------------------------------
-function generateDelegationChainScenarios() {
+export function generateDelegationChainScenarios() {
     const records = [];
     // ── Valid certs ────────────────────────────────────────────────────────────
     records.push(delegScenario('Valid delegation — grid task in Rome, cert covers Rome territory', ROME_CELL, 'grid', 'trusted', cert('@cayerbe', 'grid@rome-zone-1', ROME_SCOPE, ['grid'], PAST, FUTURE, 1), 'route_success', 'Human @cayerbe delegates to grid@rome-zone-1. Time window active, Rome cell in scope, facet matches, depth 0 <= max 1.', true, undefined, 'easy', ['valid', 'rome', 'grid', 'depth-0']));

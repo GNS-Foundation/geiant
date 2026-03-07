@@ -4,7 +4,7 @@
 // Run: tsx src/synthetic/generate.ts [output-dir]
 // =============================================================================
 
-import { runExportPipeline } from './export/exporter';
+import { runExportPipeline } from './export/exporter.js';
 import { join } from 'path';
 
 const outputDir = process.argv[2] ?? join(process.cwd(), 'dataset-output');

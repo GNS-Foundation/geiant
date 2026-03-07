@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — GEOMETRY MUTATION GENERATOR
 // Multi-step geometry workflows with intentional error injection.
@@ -15,9 +14,7 @@
 //   Hard scenarios: error is subtle (coord transposition, near-degenerate ring)
 //   Adversarial: valid-looking geometry that is mathematically self-intersecting
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateGeometryMutationScenarios = generateGeometryMutationScenarios;
-const uuid_1 = require("uuid");
+import { v4 as uuid } from 'uuid';
 // ---------------------------------------------------------------------------
 // Geometry fixtures — valid base polygons
 // ---------------------------------------------------------------------------
@@ -86,7 +83,7 @@ function invalidStep(step, op, geometry, desc, errorType) {
 // ---------------------------------------------------------------------------
 function geomScenario(description, featureId, steps, errorAt, expectedOutcome, explanation, difficulty, tags) {
     return {
-        id: (0, uuid_1.v4)(),
+        id: uuid(),
         family: 'geometry_mutation',
         description,
         input: {
@@ -110,7 +107,7 @@ function geomScenario(description, featureId, steps, errorAt, expectedOutcome, e
 // ---------------------------------------------------------------------------
 // Generate all geometry mutation scenarios
 // ---------------------------------------------------------------------------
-function generateGeometryMutationScenarios() {
+export function generateGeometryMutationScenarios() {
     const records = [];
     // ── Clean workflows (no errors) ───────────────────────────────────────────
     records.push(geomScenario('Clean 3-step buffer workflow — Rome zone expansion', 'rome-clean-buffer', [

@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — JURISDICTION RESOLVER
 // Maps H3 cells to regulatory frameworks.
@@ -19,10 +18,7 @@
 //   - Data residency requirements
 //   - Maximum autonomy tier permitted by frameworks
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.resolveJurisdiction = resolveJurisdiction;
-exports.isOperationPermitted = isOperationPermitted;
-const h3_js_1 = require("h3-js");
+import { cellToLatLng } from 'h3-js';
 // ---------------------------------------------------------------------------
 // Regulatory framework library
 // ---------------------------------------------------------------------------
@@ -157,7 +153,7 @@ const COUNTRY_PROFILES = {
  * Phase 2: Full Jurisdictional Resolution API with caching.
  */
 function resolveCountryFromCell(cell) {
-    const [lat, lng] = (0, h3_js_1.cellToLatLng)(cell);
+    const [lat, lng] = cellToLatLng(cell);
     return latLngToCountry(lat, lng);
 }
 function latLngToCountry(lat, lng) {
@@ -208,7 +204,7 @@ function latLngToCountry(lat, lng) {
  * Returns null if the cell cannot be resolved (open ocean, invalid cell, etc.)
  * The router rejects tasks with null jurisdiction.
  */
-async function resolveJurisdiction(cell) {
+export async function resolveJurisdiction(cell) {
     try {
         const countryKey = resolveCountryFromCell(cell);
         const profile = COUNTRY_PROFILES[countryKey] ?? COUNTRY_PROFILES['UNKNOWN'];
@@ -232,7 +228,7 @@ async function resolveJurisdiction(cell) {
  * Check if an agent operation at a given tier is permitted
  * under the most restrictive framework in the jurisdiction.
  */
-function isOperationPermitted(jurisdiction, agentTier) {
+export function isOperationPermitted(jurisdiction, agentTier) {
     const tierOrder = ['provisioned', 'observed', 'trusted', 'certified', 'sovereign'];
     const agentTierIndex = tierOrder.indexOf(agentTier);
     for (const framework of jurisdiction.frameworks) {

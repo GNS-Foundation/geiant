@@ -1,35 +1,26 @@
-"use strict";
 // =============================================================================
 // GEIANT — DATASET EXPORTER
 // Exports benchmark scenarios to JSON, JSONL, and HuggingFace-ready formats.
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateFullDataset = generateFullDataset;
-exports.buildManifest = buildManifest;
-exports.exportToJsonl = exportToJsonl;
-exports.exportToJson = exportToJson;
-exports.exportManifest = exportManifest;
-exports.generateDatacard = generateDatacard;
-exports.runExportPipeline = runExportPipeline;
-const fs_1 = require("fs");
-const path_1 = require("path");
-const jurisdictional_routing_1 = require("../generators/jurisdictional_routing");
-const geometry_mutation_1 = require("../generators/geometry_mutation");
-const delegation_chain_1 = require("../generators/delegation_chain");
+import { writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import { generateJurisdictionalRoutingScenarios } from '../generators/jurisdictional_routing.js';
+import { generateGeometryMutationScenarios } from '../generators/geometry_mutation.js';
+import { generateDelegationChainScenarios } from '../generators/delegation_chain.js';
 // ---------------------------------------------------------------------------
 // Collect all records
 // ---------------------------------------------------------------------------
-function generateFullDataset() {
+export function generateFullDataset() {
     return [
-        ...(0, jurisdictional_routing_1.generateJurisdictionalRoutingScenarios)(),
-        ...(0, geometry_mutation_1.generateGeometryMutationScenarios)(),
-        ...(0, delegation_chain_1.generateDelegationChainScenarios)(),
+        ...generateJurisdictionalRoutingScenarios(),
+        ...generateGeometryMutationScenarios(),
+        ...generateDelegationChainScenarios(),
     ];
 }
 // ---------------------------------------------------------------------------
 // Build manifest
 // ---------------------------------------------------------------------------
-function buildManifest(records) {
+export function buildManifest(records) {
     const byFamily = {};
     const byDifficulty = {};
     const byOutcome = {};
@@ -61,20 +52,20 @@ function buildManifest(records) {
 // ---------------------------------------------------------------------------
 // Export functions
 // ---------------------------------------------------------------------------
-function exportToJsonl(records, path) {
+export function exportToJsonl(records, path) {
     const lines = records.map(r => JSON.stringify(r)).join('\n');
-    (0, fs_1.writeFileSync)(path, lines, 'utf8');
+    writeFileSync(path, lines, 'utf8');
 }
-function exportToJson(records, path) {
-    (0, fs_1.writeFileSync)(path, JSON.stringify(records, null, 2), 'utf8');
+export function exportToJson(records, path) {
+    writeFileSync(path, JSON.stringify(records, null, 2), 'utf8');
 }
-function exportManifest(manifest, path) {
-    (0, fs_1.writeFileSync)(path, JSON.stringify(manifest, null, 2), 'utf8');
+export function exportManifest(manifest, path) {
+    writeFileSync(path, JSON.stringify(manifest, null, 2), 'utf8');
 }
 // ---------------------------------------------------------------------------
 // HuggingFace datacard (README.md)
 // ---------------------------------------------------------------------------
-function generateDatacard(manifest, records) {
+export function generateDatacard(manifest, records) {
     const f = manifest.records_by_family;
     const d = manifest.records_by_difficulty;
     const o = manifest.records_by_outcome;
@@ -241,25 +232,25 @@ Apache 2.0 — free for research and commercial use.
 // ---------------------------------------------------------------------------
 // Main export pipeline
 // ---------------------------------------------------------------------------
-function runExportPipeline(outputDir) {
-    (0, fs_1.mkdirSync)(outputDir, { recursive: true });
+export function runExportPipeline(outputDir) {
+    mkdirSync(outputDir, { recursive: true });
     const records = generateFullDataset();
     const manifest = buildManifest(records);
     // Per-family JSONL (HuggingFace convention)
     const families = ['jurisdictional_routing', 'geometry_mutation', 'delegation_chain'];
     for (const family of families) {
         const subset = records.filter(r => r.family === family);
-        exportToJsonl(subset, (0, path_1.join)(outputDir, `${family}.jsonl`));
-        exportToJson(subset, (0, path_1.join)(outputDir, `${family}.json`));
+        exportToJsonl(subset, join(outputDir, `${family}.jsonl`));
+        exportToJson(subset, join(outputDir, `${family}.json`));
     }
     // Full dataset
-    exportToJsonl(records, (0, path_1.join)(outputDir, 'geiant_benchmark.jsonl'));
-    exportToJson(records, (0, path_1.join)(outputDir, 'geiant_benchmark.json'));
+    exportToJsonl(records, join(outputDir, 'geiant_benchmark.jsonl'));
+    exportToJson(records, join(outputDir, 'geiant_benchmark.json'));
     // Manifest
-    exportManifest(manifest, (0, path_1.join)(outputDir, 'manifest.json'));
+    exportManifest(manifest, join(outputDir, 'manifest.json'));
     // HuggingFace datacard
     const datacard = generateDatacard(manifest, records);
-    (0, fs_1.writeFileSync)((0, path_1.join)(outputDir, 'README.md'), datacard, 'utf8');
+    writeFileSync(join(outputDir, 'README.md'), datacard, 'utf8');
     return manifest;
 }
 //# sourceMappingURL=exporter.js.map

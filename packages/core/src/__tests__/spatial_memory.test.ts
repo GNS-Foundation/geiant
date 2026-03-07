@@ -3,8 +3,8 @@
 // =============================================================================
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SpatialMemoryGraph, GeometryValidationError, resetSpatialMemory, getSpatialMemory } from '../memory/spatial_memory';
-import { SpatialFeature } from '../types/index';
+import { SpatialMemoryGraph, GeometryValidationError, resetSpatialMemory, getSpatialMemory } from '../memory/spatial_memory.js';
+import { SpatialFeature } from '../types/index.js';
 
 // ---------------------------------------------------------------------------
 // Test fixtures

@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — JURISDICTIONAL ROUTING GENERATOR
 // Generates benchmark scenarios for H3 cell → jurisdiction → agent routing.
@@ -13,10 +12,8 @@
 //   6. Ocean/unknown cell          — no jurisdiction resolvable
 //   7. High-compliance requirement — certified+ required in strict jurisdiction
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateJurisdictionalRoutingScenarios = generateJurisdictionalRoutingScenarios;
-const h3_js_1 = require("h3-js");
-const uuid_1 = require("uuid");
+import { latLngToCell, gridDisk } from 'h3-js';
+import { v4 as uuid } from 'uuid';
 // ---------------------------------------------------------------------------
 // Named locations used across scenarios
 // ---------------------------------------------------------------------------
@@ -50,12 +47,12 @@ const LOCATIONS = {
 // ---------------------------------------------------------------------------
 function makeAgent(handle, facet, tier, locationKey, radiusRings = 2) {
     const loc = LOCATIONS[locationKey];
-    const centerCell = (0, h3_js_1.latLngToCell)(loc.lat, loc.lng, 5);
+    const centerCell = latLngToCell(loc.lat, loc.lng, 5);
     return {
         handle,
         facet,
         tier,
-        territory_cells: (0, h3_js_1.gridDisk)(centerCell, radiusRings),
+        territory_cells: gridDisk(centerCell, radiusRings),
         compliance_score: 85,
     };
 }
@@ -75,9 +72,9 @@ const AGENT_POOL = [
 // ---------------------------------------------------------------------------
 function scenario(description, locationKey, facet, minTier, agents, expectedOutcome, groundTruth, difficulty, tags) {
     const loc = LOCATIONS[locationKey];
-    const cell = (0, h3_js_1.latLngToCell)(loc.lat, loc.lng, 7);
+    const cell = latLngToCell(loc.lat, loc.lng, 7);
     return {
-        id: (0, uuid_1.v4)(),
+        id: uuid(),
         family: 'jurisdictional_routing',
         description,
         input: {
@@ -99,7 +96,7 @@ function scenario(description, locationKey, facet, minTier, agents, expectedOutc
 // ---------------------------------------------------------------------------
 // Generate all jurisdictional routing scenarios
 // ---------------------------------------------------------------------------
-function generateJurisdictionalRoutingScenarios() {
+export function generateJurisdictionalRoutingScenarios() {
     const records = [];
     // ── Category 1: Straightforward routing ──────────────────────────────────
     records.push(scenario('Grid task in Rome — direct match to grid@rome-zone-1', 'rome', 'grid', 'observed', [AGENT_POOL[0], AGENT_POOL[1]], // rome + milan grid
@@ -191,7 +188,7 @@ function generateJurisdictionalRoutingScenarios() {
     // ── Category 6: Adversarial ───────────────────────────────────────────────
     records.push(scenario('ADVERSARIAL: Task cell in IT but agent claims CH territory — jurisdiction mismatch', 'rome', 'finance', 'trusted', [
         // Agent claims to cover Zurich but task is in Rome
-        { ...AGENT_POOL[3], handle: 'finance@swiss-fake', territory_cells: (0, h3_js_1.gridDisk)((0, h3_js_1.latLngToCell)(47.376, 8.541, 5), 1) },
+        { ...AGENT_POOL[3], handle: 'finance@swiss-fake', territory_cells: gridDisk(latLngToCell(47.376, 8.541, 5), 1) },
     ], 'reject_no_ant', {
         expected_country: 'IT',
         explanation: 'Task originates in Rome (IT) but the only finance agent covers Zurich (CH). Territory mismatch — no eligible ant. This tests that H3 territory containment is enforced, not self-reported.',

@@ -11,10 +11,10 @@ import {
   DatasetFamily,
   Difficulty,
   ExpectedOutcome,
-} from '../types';
-import { generateJurisdictionalRoutingScenarios } from '../generators/jurisdictional_routing';
-import { generateGeometryMutationScenarios } from '../generators/geometry_mutation';
-import { generateDelegationChainScenarios } from '../generators/delegation_chain';
+} from '../types.js';
+import { generateJurisdictionalRoutingScenarios } from '../generators/jurisdictional_routing.js';
+import { generateGeometryMutationScenarios } from '../generators/geometry_mutation.js';
+import { generateDelegationChainScenarios } from '../generators/delegation_chain.js';
 
 // ---------------------------------------------------------------------------
 // Collect all records

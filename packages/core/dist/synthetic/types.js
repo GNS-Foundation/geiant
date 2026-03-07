@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — SYNTHETIC DATASET TYPES
 // Schema for geospatial agent benchmark datasets published to HuggingFace.
@@ -24,5 +23,5 @@
 //   - difficulty: easy/medium/hard/adversarial
 //   - tags: for filtering and benchmarking
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
+export {};
 //# sourceMappingURL=types.js.map

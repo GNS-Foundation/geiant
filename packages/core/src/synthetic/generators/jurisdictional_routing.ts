@@ -22,7 +22,7 @@ import {
   ExpectedOutcome,
   GroundTruth,
   Difficulty,
-} from '../types';
+} from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Named locations used across scenarios

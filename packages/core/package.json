@@ -2,6 +2,7 @@
   "name": "@geiant/core",
   "version": "0.1.0",
   "description": "GEIANT core — agent identity, geospatial router, spatial memory, geometry validation",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

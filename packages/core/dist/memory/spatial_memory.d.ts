@@ -1,4 +1,4 @@
-import { SpatialMemoryNode, SpatialFeature, GeometryMutationType, H3Cell, VirtualBreadcrumb } from '../types/index';
+import { SpatialMemoryNode, SpatialFeature, GeometryMutationType, H3Cell, VirtualBreadcrumb } from '../types/index.js';
 export interface SpatialMemoryQuery {
     cell?: H3Cell;
     agentPublicKey?: string;

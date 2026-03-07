@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — AGENT REGISTRY
 // The directory of registered ants. The router queries this to find candidates.
@@ -11,52 +10,14 @@
 // The registry is the geospatial agent directory — the "DNS for ants".
 // It answers: "Which ants can handle a task at this location with this facet?"
 // =============================================================================
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.InMemoryRegistry = void 0;
-exports.getRegistry = getRegistry;
-exports.setRegistry = setRegistry;
-exports.seedDevRegistry = seedDevRegistry;
-const identity_js_1 = require("../agent/identity.js");
+import { isInTerritory, tierSatisfies, validateManifestStructure, computeTier, derivestellarAccountId } from '../agent/identity.js';
 // ---------------------------------------------------------------------------
 // Phase 0: In-memory implementation
 // ---------------------------------------------------------------------------
-class InMemoryRegistry {
+export class InMemoryRegistry {
     ants = new Map();
     async register(manifest) {
-        const { valid, errors } = (0, identity_js_1.validateManifestStructure)(manifest);
+        const { valid, errors } = validateManifestStructure(manifest);
         if (!valid) {
             throw new Error(`Invalid manifest: ${errors.join(', ')}`);
         }
@@ -76,8 +37,8 @@ class InMemoryRegistry {
     async findEligibleAnts(cell, facet, minTier) {
         return Array.from(this.ants.values()).filter(ant => {
             const facetMatch = ant.identity.facet === facet || ant.identity.facet === 'general';
-            const tierOk = (0, identity_js_1.tierSatisfies)(ant.identity.tier, minTier);
-            const territoryOk = (0, identity_js_1.isInTerritory)(cell, ant.identity.territoryCells, true);
+            const tierOk = tierSatisfies(ant.identity.tier, minTier);
+            const territoryOk = isInTerritory(cell, ant.identity.territoryCells, true);
             return facetMatch && tierOk && territoryOk;
         });
     }
@@ -91,25 +52,24 @@ class InMemoryRegistry {
         return this.ants.size;
     }
 }
-exports.InMemoryRegistry = InMemoryRegistry;
 // ---------------------------------------------------------------------------
 // Registry factory
 // ---------------------------------------------------------------------------
 let _registry = null;
-function getRegistry() {
+export function getRegistry() {
     if (!_registry) {
         _registry = new InMemoryRegistry();
     }
     return _registry;
 }
-function setRegistry(registry) {
+export function setRegistry(registry) {
     _registry = registry;
 }
 // ---------------------------------------------------------------------------
 // Seed data — example ants for development / testing
 // ---------------------------------------------------------------------------
-async function seedDevRegistry(registry) {
-    const { latLngToCell, gridDisk } = await Promise.resolve().then(() => __importStar(require('h3-js')));
+export async function seedDevRegistry(registry) {
+    const { latLngToCell, gridDisk } = await import('h3-js');
     const makeAnt = (publicKey, handle, facet, lat, lng, operationCount) => {
         const centerCell = latLngToCell(lat, lng, 5);
         const cells = gridDisk(centerCell, 2);
@@ -119,9 +79,9 @@ async function seedDevRegistry(registry) {
                 handle,
                 facet,
                 territoryCells: cells,
-                tier: (0, identity_js_1.computeTier)(operationCount),
+                tier: computeTier(operationCount),
                 provisionedAt: '2026-01-01T00:00:00Z',
-                stellarAccountId: (0, identity_js_1.derivestellarAccountId)(publicKey),
+                stellarAccountId: derivestellarAccountId(publicKey),
             },
             description: `GEIANT ${facet} agent for ${handle.split('@')[1]}`,
             capabilities: [facet, 'h3', 'gdal'],

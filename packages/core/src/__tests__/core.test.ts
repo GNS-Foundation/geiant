@@ -18,7 +18,7 @@ import {
   isOperationPermitted,
   AntManifest,
   AntTier,
-} from '../index';
+} from '../index.js';
 import { latLngToCell, gridDisk } from 'h3-js';
 
 // ---------------------------------------------------------------------------

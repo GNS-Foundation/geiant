@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — JURISDICTIONAL HAND-OFF ENGINE  (L1 Cross-Jurisdiction)
 // "The ant colony in action — specialized agents passing the baton."
@@ -26,20 +25,17 @@
 // This is the "spatial compliance router" that makes GEIANT's L1 layer
 // fundamentally different from any existing orchestration framework.
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.resolveHandoff = resolveHandoff;
-exports.formatHandoffSummary = formatHandoffSummary;
-const crypto_1 = require("crypto");
-const h3_js_1 = require("h3-js");
-const jurisdiction_js_1 = require("./jurisdiction.js");
-const ed25519_js_1 = require("../crypto/ed25519.js");
+import { createHash } from 'crypto';
+import { gridDisk } from 'h3-js';
+import { resolveJurisdiction } from './jurisdiction.js';
+import { signMessage } from '../crypto/ed25519.js';
 // ---------------------------------------------------------------------------
 // Router key for signing HandoffCerts
 // Phase 0: deterministic dev key derived from a fixed seed
 // Phase 1: loaded from secure enclave / Railway secret
 // ---------------------------------------------------------------------------
 const ROUTER_PRIVATE_KEY_HEX = process.env.ROUTER_SIGNING_KEY ??
-    (0, crypto_1.createHash)('sha256').update('geiant-router-dev-signing-key-v1').digest('hex');
+    createHash('sha256').update('geiant-router-dev-signing-key-v1').digest('hex');
 // ---------------------------------------------------------------------------
 // Main hand-off resolution
 // ---------------------------------------------------------------------------
@@ -51,7 +47,7 @@ const ROUTER_PRIVATE_KEY_HEX = process.env.ROUTER_SIGNING_KEY ??
  * MAX_HANDOFF_RINGS rings out, looking for an eligible ant in an
  * adjacent territory.
  */
-async function resolveHandoff(task, originJurisdiction, registry) {
+export async function resolveHandoff(task, originJurisdiction, registry) {
     // Gate: check subdelegation depth allows handoff
     const remainingDepth = task.delegationCert.maxSubdelegationDepth;
     if (remainingDepth <= 0) {
@@ -65,10 +61,10 @@ async function resolveHandoff(task, originJurisdiction, registry) {
     const MAX_RINGS = 3;
     const searchedCells = new Set([task.originCell]);
     for (let ring = 1; ring <= MAX_RINGS; ring++) {
-        const ringCells = (0, h3_js_1.gridDisk)(task.originCell, ring).filter(c => !searchedCells.has(c));
+        const ringCells = gridDisk(task.originCell, ring).filter(c => !searchedCells.has(c));
         ringCells.forEach(c => searchedCells.add(c));
         for (const cell of ringCells) {
-            const candidateJurisdiction = await (0, jurisdiction_js_1.resolveJurisdiction)(cell);
+            const candidateJurisdiction = await resolveJurisdiction(cell);
             if (!candidateJurisdiction)
                 continue;
             // Skip cells in same jurisdiction as origin — we already know no ant is there
@@ -113,7 +109,7 @@ function issueHandoffCert(task, receivingAnt, targetCell, targetJurisdiction, re
     // Scope the cert to the receiving ant's territory cells
     // (intersection of original scopeCells ∪ target jurisdiction cells)
     const scopeCells = receivingAnt.identity.territoryCells.slice(0, 20); // cap at 20 cells
-    const parentCertHash = (0, crypto_1.createHash)('sha256')
+    const parentCertHash = createHash('sha256')
         .update(JSON.stringify({
         id: task.delegationCert.id,
         humanPublicKey: task.delegationCert.humanPublicKey,
@@ -133,7 +129,7 @@ function issueHandoffCert(task, receivingAnt, targetCell, targetJurisdiction, re
         issuedAt,
     };
     // Router signs the handoff cert
-    const routerSignature = (0, ed25519_js_1.signMessage)(certPayload, ROUTER_PRIVATE_KEY_HEX);
+    const routerSignature = signMessage(certPayload, ROUTER_PRIVATE_KEY_HEX);
     return { ...certPayload, routerSignature };
 }
 /**
@@ -185,7 +181,7 @@ function findBridgeCells(originCell, targetCell, ringDistance) {
     try {
         // gridDisk at half the distance gives the intermediate cells
         const midRing = Math.max(1, Math.floor(ringDistance / 2));
-        const intermediate = (0, h3_js_1.gridDisk)(originCell, midRing)
+        const intermediate = gridDisk(originCell, midRing)
             .filter(c => c !== originCell);
         return [originCell, ...intermediate.slice(0, 3), targetCell];
     }
@@ -196,7 +192,7 @@ function findBridgeCells(originCell, targetCell, ringDistance) {
 // ---------------------------------------------------------------------------
 // Format handoff decision for logs / API response
 // ---------------------------------------------------------------------------
-function formatHandoffSummary(handoff) {
+export function formatHandoffSummary(handoff) {
     if (!handoff.possible) {
         return `[GEIANT Handoff] Not possible: ${handoff.rejectionReason}`;
     }

@@ -4,8 +4,8 @@
 // =============================================================================
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { generateFullDataset, buildManifest } from '../synthetic/export/exporter';
-import { DatasetRecord, DatasetManifest } from '../synthetic/types';
+import { generateFullDataset, buildManifest } from '../synthetic/export/exporter.js';
+import { DatasetRecord, DatasetManifest } from '../synthetic/types.js';
 
 let records: DatasetRecord[];
 let manifest: DatasetManifest;

@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — GEOMETRY REPAIR ENGINE  (L2 Self-Healing)
 // "Don't just reject — fix and explain."
@@ -23,12 +22,7 @@
 // This eliminates agent "correction loops" where an LLM re-generates the
 // same invalid geometry 3-4 times before a human intervenes.
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.repairGeometry = repairGeometry;
-exports.repairFeatures = repairFeatures;
-exports.convexHull = convexHull;
-exports.formatRepairFeedback = formatRepairFeedback;
-const geometry_js_1 = require("./geometry.js");
+import { validateGeometry } from './geometry.js';
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
@@ -36,7 +30,7 @@ const geometry_js_1 = require("./geometry.js");
  * Attempt to repair a single geometry.
  * Returns a GeometryRepairResult with the corrected geometry if possible.
  */
-function repairGeometry(geom, error) {
+export function repairGeometry(geom, error) {
     if (!error.errorType) {
         return noRepair(geom, 'unknown', 'No error type provided');
     }
@@ -59,13 +53,13 @@ function repairGeometry(geom, error) {
  * Attempt to repair all features in a task.
  * Returns per-feature repair results and the repaired feature array.
  */
-function repairFeatures(features) {
+export function repairFeatures(features) {
     const repairs = [];
     const repairedFeatures = [];
     let allRepaired = true;
     for (let i = 0; i < features.length; i++) {
         const feature = features[i];
-        const validation = (0, geometry_js_1.validateGeometry)(feature.geometry, i);
+        const validation = validateGeometry(feature.geometry, i);
         if (validation.valid) {
             repairedFeatures.push(feature);
             continue;
@@ -74,7 +68,7 @@ function repairFeatures(features) {
         repairs.push(repair);
         if (repair.repaired && repair.repairedGeometry) {
             // Verify the repair actually fixed it
-            const recheck = (0, geometry_js_1.validateGeometry)(repair.repairedGeometry, i);
+            const recheck = validateGeometry(repair.repairedGeometry, i);
             if (recheck.valid) {
                 repairedFeatures.push({ ...feature, geometry: repair.repairedGeometry });
             }
@@ -389,7 +383,7 @@ function repairInvalidCoordinate(geom) {
  * Returns a closed ring (first == last) in counter-clockwise order.
  * Returns null if fewer than 3 unique points.
  */
-function convexHull(points) {
+export function convexHull(points) {
     // Deduplicate
     const unique = Array.from(new Map(points.map(p => [`${p[0]},${p[1]}`, p])).values());
     if (unique.length < 3)
@@ -450,7 +444,7 @@ function noRepair(geom, errorType, reason) {
  * Format repair results as structured agent feedback.
  * This is what gets sent back to the LLM explaining what was auto-corrected.
  */
-function formatRepairFeedback(repairs) {
+export function formatRepairFeedback(repairs) {
     if (repairs.length === 0)
         return '';
     const lines = [

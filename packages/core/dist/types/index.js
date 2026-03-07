@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — CORE TYPE DEFINITIONS
 // Geo-Identity Agent Navigation & Tasking
@@ -14,9 +13,7 @@
 //   ValidationResult   — geometry guardrail output
 //   JurisdictionResult — resolved regulatory context for an H3 cell
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.ANT_TIER_MIN_OPS = void 0;
-exports.ANT_TIER_MIN_OPS = {
+export const ANT_TIER_MIN_OPS = {
     provisioned: 0,
     observed: 50,
     trusted: 500,

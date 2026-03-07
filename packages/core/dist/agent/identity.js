@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — AGENT IDENTITY
 // Provisioning, verification, and tier management for ants
@@ -13,18 +12,8 @@
 //   computeTier()       — derive tier from operation count
 //   isInTerritory()     — check if an H3 cell falls within declared territory
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.computeTier = computeTier;
-exports.tierSatisfies = tierSatisfies;
-exports.isInTerritory = isInTerritory;
-exports.cellsFromRadius = cellsFromRadius;
-exports.buildHandle = buildHandle;
-exports.parseHandle = parseHandle;
-exports.derivestellarAccountId = derivestellarAccountId;
-exports.validateManifestStructure = validateManifestStructure;
-exports.scoreAntFitness = scoreAntFitness;
-const h3_js_1 = require("h3-js");
-const index_js_1 = require("../types/index.js");
+import { latLngToCell, gridDisk } from 'h3-js';
+import { ANT_TIER_MIN_OPS, } from '../types/index.js';
 // ---------------------------------------------------------------------------
 // Tier computation
 // ---------------------------------------------------------------------------
@@ -32,21 +21,21 @@ const index_js_1 = require("../types/index.js");
  * Derive the correct AntTier from an operation count.
  * This is deterministic — no discretion, no admin override.
  */
-function computeTier(operationCount) {
-    if (operationCount >= index_js_1.ANT_TIER_MIN_OPS.sovereign)
+export function computeTier(operationCount) {
+    if (operationCount >= ANT_TIER_MIN_OPS.sovereign)
         return 'sovereign';
-    if (operationCount >= index_js_1.ANT_TIER_MIN_OPS.certified)
+    if (operationCount >= ANT_TIER_MIN_OPS.certified)
         return 'certified';
-    if (operationCount >= index_js_1.ANT_TIER_MIN_OPS.trusted)
+    if (operationCount >= ANT_TIER_MIN_OPS.trusted)
         return 'trusted';
-    if (operationCount >= index_js_1.ANT_TIER_MIN_OPS.observed)
+    if (operationCount >= ANT_TIER_MIN_OPS.observed)
         return 'observed';
     return 'provisioned';
 }
 /**
  * Compare two tiers — returns true if `actual` satisfies `required`.
  */
-function tierSatisfies(actual, required) {
+export function tierSatisfies(actual, required) {
     const order = ['provisioned', 'observed', 'trusted', 'certified', 'sovereign'];
     return order.indexOf(actual) >= order.indexOf(required);
 }
@@ -59,12 +48,12 @@ function tierSatisfies(actual, required) {
  * Uses H3 containment: the task cell must be one of the ant's territory cells
  * OR contained within a k=1 ring of them (one-cell buffer for border tasks).
  */
-function isInTerritory(taskCell, territoryCells, allowBorderBuffer = false) {
+export function isInTerritory(taskCell, territoryCells, allowBorderBuffer = false) {
     if (territoryCells.includes(taskCell))
         return true;
     if (allowBorderBuffer) {
         for (const cell of territoryCells) {
-            const ring = (0, h3_js_1.gridDisk)(cell, 1);
+            const ring = gridDisk(cell, 1);
             if (ring.includes(taskCell))
                 return true;
         }
@@ -75,12 +64,12 @@ function isInTerritory(taskCell, territoryCells, allowBorderBuffer = false) {
  * Compute the H3 cells (res 5) for a lat/lng centroid + radius in km.
  * Useful for provisioning territory from a geographic description.
  */
-function cellsFromRadius(lat, lng, radiusKm, resolution = 5) {
-    const centerCell = (0, h3_js_1.latLngToCell)(lat, lng, resolution);
+export function cellsFromRadius(lat, lng, radiusKm, resolution = 5) {
+    const centerCell = latLngToCell(lat, lng, resolution);
     // Approximate: 1 H3 res-5 cell ≈ ~252 km edge length, use gridDisk
     // k rings: each ring ~= cell edge length apart
     const kRings = Math.ceil(radiusKm / 50); // rough approximation for res 5
-    return (0, h3_js_1.gridDisk)(centerCell, Math.max(0, kRings));
+    return gridDisk(centerCell, Math.max(0, kRings));
 }
 // ---------------------------------------------------------------------------
 // Identity construction helpers
@@ -89,14 +78,14 @@ function cellsFromRadius(lat, lng, radiusKm, resolution = 5) {
  * Construct a GNS-style handle from facet + territory name.
  * e.g. ("health", "eu-north") → "health@eu-north"
  */
-function buildHandle(facet, territoryName) {
+export function buildHandle(facet, territoryName) {
     const clean = territoryName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
     return `${facet}@${clean}`;
 }
 /**
  * Parse a handle into facet + territory components.
  */
-function parseHandle(handle) {
+export function parseHandle(handle) {
     const parts = handle.split('@');
     if (parts.length !== 2)
         return null;
@@ -108,7 +97,7 @@ function parseHandle(handle) {
  * Note: In the full implementation this calls the GNS stellar_service
  * conversion (Ed25519 hex → Stellar G... format). Stubbed here for Phase 0.
  */
-function derivestellarAccountId(publicKeyHex) {
+export function derivestellarAccountId(publicKeyHex) {
     // Stub — full impl uses stellar SDK KeyPair.fromPublicKey(hexToBytes(publicKeyHex)).accountId
     return `G_STUB_${publicKeyHex.substring(0, 16).toUpperCase()}`;
 }
@@ -119,7 +108,7 @@ function derivestellarAccountId(publicKeyHex) {
  * Verify the internal consistency of an AntManifest.
  * Does NOT verify the Ed25519 signature (that requires the crypto module).
  */
-function validateManifestStructure(manifest) {
+export function validateManifestStructure(manifest) {
     const errors = [];
     if (!manifest.identity.publicKey || manifest.identity.publicKey.length !== 64) {
         errors.push('publicKey must be 64 hex characters');
@@ -153,7 +142,7 @@ function validateManifestStructure(manifest) {
  *   - Tier relative to required tier
  *   - Operation count (experience proxy)
  */
-function scoreAntFitness(manifest, taskCell, requiredTier) {
+export function scoreAntFitness(manifest, taskCell, requiredTier) {
     if (!isInTerritory(taskCell, manifest.identity.territoryCells, true)) {
         return -1; // ineligible
     }

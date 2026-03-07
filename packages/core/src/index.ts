@@ -58,8 +58,8 @@ export {
   GeometryValidationError,
   getSpatialMemory,
   resetSpatialMemory,
-} from './memory/spatial_memory';
-export type { SpatialMemoryQuery, MutationResult, RollbackResult } from './memory/spatial_memory';
+} from './memory/spatial_memory.js';
+export type { SpatialMemoryQuery, MutationResult, RollbackResult } from './memory/spatial_memory.js';
 
 // Ed25519 Crypto
 export {
@@ -76,12 +76,12 @@ export {
   isValidSignature,
   isStubSignature,
   canonicalMessage,
-} from './crypto/ed25519';
-export type { Ed25519Keypair } from './crypto/ed25519';
+} from './crypto/ed25519.js';
+export type { Ed25519Keypair } from './crypto/ed25519.js';
 
 // Supabase Registry
-export { SupabaseRegistry, createSupabaseRegistry } from './registry/supabase_registry';
+export { SupabaseRegistry, createSupabaseRegistry } from './registry/supabase_registry.js';
 
 // MCP Switchboard
-export { McpSwitchboard, createSwitchboard } from './mcp/switchboard';
-export type { McpToolCall, SwitchboardResult, McpServerConfig } from './mcp/switchboard';
+export { McpSwitchboard, createSwitchboard } from './mcp/switchboard.js';
+export type { McpToolCall, SwitchboardResult, McpServerConfig } from './mcp/switchboard.js';

@@ -22,7 +22,7 @@ import {
   MutationStep,
   ExpectedOutcome,
   Difficulty,
-} from '../types';
+} from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Geometry fixtures — valid base polygons

@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — DELEGATION CHAIN VALIDATOR
 // Verifies the human → agent authorization chain before any task dispatches.
@@ -15,11 +14,7 @@
 //   5. Sub-delegation depth — does not exceed maxSubdelegationDepth
 //   6. Signature verification — human's Ed25519 sig over canonical cert JSON
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.validateDelegation = validateDelegation;
-exports.createSubDelegation = createSubDelegation;
-exports.hashCert = hashCert;
-const identity_js_1 = require("../agent/identity.js");
+import { isInTerritory } from '../agent/identity.js';
 // ---------------------------------------------------------------------------
 // Main validator
 // ---------------------------------------------------------------------------
@@ -29,7 +24,7 @@ const identity_js_1 = require("../agent/identity.js");
  * Returns a DelegationValidationResult with a human-readable reason
  * if validation fails — this becomes part of the audit breadcrumb.
  */
-function validateDelegation(cert, task, chainDepth = 0) {
+export function validateDelegation(cert, task, chainDepth = 0) {
     // 1. Format integrity
     const formatCheck = checkCertFormat(cert);
     if (!formatCheck.valid) {
@@ -119,7 +114,7 @@ function validateDelegation(cert, task, chainDepth = 0) {
  * @param subAgentPublicKey - the sub-agent being delegated to
  * @param scopeReduction - optionally narrow scope further
  */
-function createSubDelegation(parentCert, subAgentPublicKey, scopeReduction) {
+export function createSubDelegation(parentCert, subAgentPublicKey, scopeReduction) {
     if (parentCert.maxSubdelegationDepth <= 0) {
         throw new Error('Parent cert does not permit sub-delegation');
     }
@@ -166,7 +161,7 @@ function checkCertFormat(cert) {
 }
 function isCellInScope(taskCell, scopeCells) {
     // Allow border buffer of k=1 — task at territory edge should resolve
-    return (0, identity_js_1.isInTerritory)(taskCell, scopeCells, true);
+    return isInTerritory(taskCell, scopeCells, true);
 }
 /**
  * Stub — full implementation uses Ed25519 verify from @noble/ed25519
@@ -186,7 +181,7 @@ function verifyCertSignature(cert) {
  * Compute a deterministic hash of a cert for chaining.
  * Full impl: SHA-256 of canonical JSON.
  */
-function hashCert(cert) {
+export function hashCert(cert) {
     // Stub — full impl: crypto.createHash('sha256').update(canonicalJson(cert)).digest('hex')
     return `hash_${cert.id.replace(/-/g, '').substring(0, 16)}`;
 }

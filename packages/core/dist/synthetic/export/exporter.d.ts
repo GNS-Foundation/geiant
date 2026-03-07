@@ -1,4 +1,4 @@
-import { DatasetRecord, DatasetManifest } from '../types';
+import { DatasetRecord, DatasetManifest } from '../types.js';
 export declare function generateFullDataset(): DatasetRecord[];
 export declare function buildManifest(records: DatasetRecord[]): DatasetManifest;
 export declare function exportToJsonl(records: DatasetRecord[], path: string): void;

@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — MCP SWITCHBOARD
 // Routes dispatched tasks to the correct MCP server tool.
@@ -17,11 +16,8 @@
 // Each dispatch returns a SwitchboardResult with the tool response,
 // latency, and a virtual breadcrumb for the audit trail.
 // =============================================================================
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.McpSwitchboard = void 0;
-exports.createSwitchboard = createSwitchboard;
-const crypto_1 = require("crypto");
-const h3_js_1 = require("h3-js");
+import { createHash } from 'crypto';
+import { cellToLatLng } from 'h3-js';
 // ---------------------------------------------------------------------------
 // MCP Client — calls a remote MCP tool via HTTP
 // ---------------------------------------------------------------------------
@@ -79,7 +75,7 @@ async function callMcpTool(serverUrl, apiKey, tool, params) {
 // ---------------------------------------------------------------------------
 // Switchboard class
 // ---------------------------------------------------------------------------
-class McpSwitchboard {
+export class McpSwitchboard {
     servers;
     constructor(servers) {
         this.servers = new Map(servers.map(s => [s.name, s]));
@@ -180,7 +176,7 @@ class McpSwitchboard {
                 return null;
             case 'jurisdictional_check': {
                 // Resolve from origin cell lat/lng
-                const [lat, lng] = (0, h3_js_1.cellToLatLng)(task.originCell);
+                const [lat, lng] = cellToLatLng(task.originCell);
                 return {
                     tool: 'jurisdiction_lookup',
                     server: 'geiant-postgis',
@@ -203,8 +199,49 @@ class McpSwitchboard {
                     };
                 }
                 return null;
+            case 'eo_inference': {
+                const eoOp = params.operation;
+                if (eoOp === 'band_algebra' || eoOp === 'ndvi' || eoOp === 'ndwi') {
+                    const formula = eoOp === 'ndvi'
+                        ? '(NIR-RED)/(NIR+RED+1e-8)'
+                        : eoOp === 'ndwi'
+                            ? '(GREEN-NIR)/(GREEN+NIR+1e-8)'
+                            : params.formula;
+                    return {
+                        tool: 'band_algebra', server: 'geiant-gdal',
+                        params: {
+                            input_path: params.input_path, formula,
+                            band_mapping: params.band_mapping ?? { RED: 3, GREEN: 2, NIR: 4 }
+                        },
+                    };
+                }
+                if (eoOp === 'warp' || eoOp === 'reproject')
+                    return {
+                        tool: 'warp', server: 'geiant-gdal',
+                        params: { input_path: params.input_path, target_epsg: params.target_epsg ?? 32632 }
+                    };
+                if (eoOp === 'clip')
+                    return {
+                        tool: 'clip_to_geometry', server: 'geiant-gdal',
+                        params: { input_path: params.input_path, clip_geometry: geometry }
+                    };
+                if (eoOp === 'stats')
+                    return {
+                        tool: 'raster_stats', server: 'geiant-gdal',
+                        params: { file_path: params.input_path, band_numbers: params.band_numbers }
+                    };
+                if (eoOp === 'h3_sample')
+                    return {
+                        tool: 'h3_sample', server: 'geiant-gdal',
+                        params: { input_path: params.input_path, h3_cells: params.h3_cells, band_number: params.band_number ?? 1 }
+                    };
+                return {
+                    tool: 'raster_info', server: 'geiant-gdal',
+                    params: { file_path: params.input_path ?? params.file_path }
+                };
+            }
             case 'compliance_audit': {
-                const [lat, lng] = (0, h3_js_1.cellToLatLng)(task.originCell);
+                const [lat, lng] = cellToLatLng(task.originCell);
                 return {
                     tool: 'jurisdiction_lookup',
                     server: 'geiant-postgis',
@@ -242,13 +279,13 @@ class McpSwitchboard {
             serverUsed: 'none',
             error,
             latencyMs: Date.now() - startedAt,
-            breadcrumbHash: (0, crypto_1.createHash)('sha256')
+            breadcrumbHash: createHash('sha256')
                 .update(`${task.id}:error:${error}`)
                 .digest('hex'),
         };
     }
     buildBreadcrumbHash(task, toolCall, latencyMs) {
-        return (0, crypto_1.createHash)('sha256')
+        return createHash('sha256')
             .update(JSON.stringify({
             taskId: task.id,
             tool: toolCall.tool,
@@ -290,11 +327,10 @@ class McpSwitchboard {
         return results;
     }
 }
-exports.McpSwitchboard = McpSwitchboard;
 // ---------------------------------------------------------------------------
 // Factory — create switchboard from env vars
 // ---------------------------------------------------------------------------
-function createSwitchboard() {
+export function createSwitchboard() {
     const servers = [];
     // PostGIS server (local or remote)
     const postgisUrl = process.env.GEIANT_MCP_POSTGIS_URL ?? 'http://localhost:3200';
@@ -309,10 +345,18 @@ function createSwitchboard() {
             'jurisdiction_lookup',
         ],
     });
-    // Future: @geiant/mcp-gdal
-    // if (process.env.GEIANT_MCP_GDAL_URL) {
-    //   servers.push({ name: 'geiant-gdal', url: process.env.GEIANT_MCP_GDAL_URL, ... });
-    // }
+    if (process.env.GEIANT_MCP_GDAL_URL) {
+        servers.push({
+            name: 'geiant-gdal',
+            url: process.env.GEIANT_MCP_GDAL_URL,
+            apiKey: process.env.GEIANT_MCP_API_KEY ?? 'geiant-dev-key',
+            capabilities: [
+                'raster_info', 'raster_stats', 'reproject', 'warp',
+                'clip_to_geometry', 'contours', 'translate', 'band_algebra', 'h3_sample',
+            ],
+        });
+        console.log(`[GEIANT Switchboard] GDAL server registered: ${process.env.GEIANT_MCP_GDAL_URL}`);
+    }
     return new McpSwitchboard(servers);
 }
 //# sourceMappingURL=switchboard.js.map

@@ -11,7 +11,7 @@ import {
   DelegationFlaw,
   ExpectedOutcome,
   Difficulty,
-} from '../types';
+} from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -1,1 +1,1 @@
-{"version":3,"file":"jurisdictional_routing.d.ts","sourceRoot":"","sources":["../../../src/synthetic/generators/jurisdictional_routing.ts"],"names":[],"mappings":"AAiBA,OAAO,EACL,aAAa,EACb,0BAA0B,EAK3B,MAAM,UAAU,CAAC;AA+GlB,wBAAgB,sCAAsC,IAAI,aAAa,CAAC,0BAA0B,CAAC,EAAE,CAqOpG"}
+{"version":3,"file":"jurisdictional_routing.d.ts","sourceRoot":"","sources":["../../../src/synthetic/generators/jurisdictional_routing.ts"],"names":[],"mappings":"AAiBA,OAAO,EACL,aAAa,EACb,0BAA0B,EAK3B,MAAM,aAAa,CAAC;AA+GrB,wBAAgB,sCAAsC,IAAI,aAAa,CAAC,0BAA0B,CAAC,EAAE,CAqOpG"}

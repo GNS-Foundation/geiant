@@ -1,4 +1,3 @@
-"use strict";
 // =============================================================================
 // GEIANT — Ed25519 CRYPTO MODULE
 // Real signing and verification using @noble/ed25519.
@@ -15,61 +14,13 @@
 //   const sig = await sign(message, keypair.privateKeyHex);
 //   const valid = await verify(message, sig, keypair.publicKeyHex);
 // =============================================================================
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateKeypair = generateKeypair;
-exports.keypairFromSeed = keypairFromSeed;
-exports.publicKeyFromPrivate = publicKeyFromPrivate;
-exports.canonicalMessage = canonicalMessage;
-exports.signMessage = signMessage;
-exports.signHash = signHash;
-exports.verifyMessage = verifyMessage;
-exports.verifyHash = verifyHash;
-exports.delegationCertPayload = delegationCertPayload;
-exports.signDelegationCert = signDelegationCert;
-exports.verifyDelegationCert = verifyDelegationCert;
-exports.isValidPublicKey = isValidPublicKey;
-exports.isValidSignature = isValidSignature;
-exports.isStubSignature = isStubSignature;
-const ed = __importStar(require("@noble/ed25519"));
-const crypto_1 = require("crypto");
+import * as ed from '@noble/ed25519';
+import { createHash, randomBytes } from 'crypto';
 // @noble/ed25519 v2 requires sha512Sync to be set.
 // Use Node's built-in crypto — no extra dependency needed.
 ed.etc.sha512Sync = (...msgs) => {
     const combined = ed.etc.concatBytes(...msgs);
-    return new Uint8Array((0, crypto_1.createHash)('sha512').update(combined).digest());
+    return new Uint8Array(createHash('sha512').update(combined).digest());
 };
 // ---------------------------------------------------------------------------
 // Key generation
@@ -77,8 +28,8 @@ ed.etc.sha512Sync = (...msgs) => {
 /**
  * Generate a fresh Ed25519 keypair from secure random bytes.
  */
-function generateKeypair() {
-    const privateKeyBytes = (0, crypto_1.randomBytes)(32);
+export function generateKeypair() {
+    const privateKeyBytes = randomBytes(32);
     const publicKeyBytes = ed.getPublicKey(privateKeyBytes);
     return {
         privateKeyHex: Buffer.from(privateKeyBytes).toString('hex'),
@@ -89,7 +40,7 @@ function generateKeypair() {
  * Derive keypair from a deterministic seed (e.g. for test agents).
  * Seed must be 32 bytes of hex.
  */
-function keypairFromSeed(seedHex) {
+export function keypairFromSeed(seedHex) {
     const privateKeyBytes = Buffer.from(seedHex.padEnd(64, '0').substring(0, 64), 'hex');
     const publicKeyBytes = ed.getPublicKey(privateKeyBytes);
     return {
@@ -100,7 +51,7 @@ function keypairFromSeed(seedHex) {
 /**
  * Derive public key from private key hex.
  */
-function publicKeyFromPrivate(privateKeyHex) {
+export function publicKeyFromPrivate(privateKeyHex) {
     const privateKeyBytes = Buffer.from(privateKeyHex, 'hex');
     const publicKeyBytes = ed.getPublicKey(privateKeyBytes);
     return Buffer.from(publicKeyBytes).toString('hex');
@@ -116,11 +67,11 @@ function publicKeyFromPrivate(privateKeyHex) {
  * This matches GNS Protocol's canonical JSON requirement:
  * signature failures often stem from key ordering mismatches.
  */
-function canonicalMessage(input) {
+export function canonicalMessage(input) {
     const json = typeof input === 'string'
         ? input
         : JSON.stringify(input, Object.keys(input).sort());
-    return new Uint8Array((0, crypto_1.createHash)('sha256').update(json, 'utf8').digest());
+    return new Uint8Array(createHash('sha256').update(json, 'utf8').digest());
 }
 // ---------------------------------------------------------------------------
 // Sign
@@ -129,7 +80,7 @@ function canonicalMessage(input) {
  * Sign a message with an Ed25519 private key.
  * Returns 128 hex chars (64-byte signature).
  */
-function signMessage(message, privateKeyHex) {
+export function signMessage(message, privateKeyHex) {
     const msgBytes = canonicalMessage(message);
     const privateKeyBytes = Buffer.from(privateKeyHex, 'hex');
     const sigBytes = ed.sign(msgBytes, privateKeyBytes);
@@ -139,7 +90,7 @@ function signMessage(message, privateKeyHex) {
  * Sign a raw hash (already SHA-256 hex) with an Ed25519 private key.
  * The hash is treated as a pre-hashed message — we sign its bytes directly.
  */
-function signHash(hashHex, privateKeyHex) {
+export function signHash(hashHex, privateKeyHex) {
     const msgBytes = new Uint8Array(Buffer.from(hashHex, 'hex'));
     const privateKeyBytes = Buffer.from(privateKeyHex, 'hex');
     const sigBytes = ed.sign(msgBytes, privateKeyBytes);
@@ -151,7 +102,7 @@ function signHash(hashHex, privateKeyHex) {
 /**
  * Verify an Ed25519 signature over a message.
  */
-function verifyMessage(message, signatureHex, publicKeyHex) {
+export function verifyMessage(message, signatureHex, publicKeyHex) {
     try {
         if (!signatureHex || signatureHex.length !== 128)
             return false;
@@ -169,7 +120,7 @@ function verifyMessage(message, signatureHex, publicKeyHex) {
 /**
  * Verify an Ed25519 signature over a raw hash.
  */
-function verifyHash(hashHex, signatureHex, publicKeyHex) {
+export function verifyHash(hashHex, signatureHex, publicKeyHex) {
     try {
         if (!signatureHex || signatureHex.length !== 128)
             return false;
@@ -191,7 +142,7 @@ function verifyHash(hashHex, signatureHex, publicKeyHex) {
  * Build the canonical delegation cert payload for signing.
  * Matches the DelegationCert type — human signs over these fields.
  */
-function delegationCertPayload(cert) {
+export function delegationCertPayload(cert) {
     return JSON.stringify({
         agentPublicKey: cert.agentPublicKey,
         maxSubdelegationDepth: cert.maxSubdelegationDepth,
@@ -204,13 +155,13 @@ function delegationCertPayload(cert) {
 /**
  * Sign a delegation cert with the human's private key.
  */
-function signDelegationCert(cert, humanPrivateKeyHex) {
+export function signDelegationCert(cert, humanPrivateKeyHex) {
     return signMessage(delegationCertPayload(cert), humanPrivateKeyHex);
 }
 /**
  * Verify a delegation cert signature with the human's public key.
  */
-function verifyDelegationCert(cert, signatureHex, humanPublicKeyHex) {
+export function verifyDelegationCert(cert, signatureHex, humanPublicKeyHex) {
     return verifyMessage(delegationCertPayload(cert), signatureHex, humanPublicKeyHex);
 }
 // ---------------------------------------------------------------------------
@@ -219,20 +170,20 @@ function verifyDelegationCert(cert, signatureHex, humanPublicKeyHex) {
 /**
  * Check if a hex string looks like a valid Ed25519 public key.
  */
-function isValidPublicKey(hex) {
+export function isValidPublicKey(hex) {
     return /^[0-9a-f]{64}$/.test(hex);
 }
 /**
  * Check if a hex string looks like a valid Ed25519 signature.
  */
-function isValidSignature(hex) {
+export function isValidSignature(hex) {
     return /^[0-9a-f]{128}$/.test(hex);
 }
 /**
  * Check if a string is a stub signature (all zeros padding).
  * Used to detect unupgraded Phase 0 signatures.
  */
-function isStubSignature(hex) {
+export function isStubSignature(hex) {
     return hex.endsWith('0000000000000000000000000000000000000000000000000000000000000000');
 }
 //# sourceMappingURL=ed25519.js.map
