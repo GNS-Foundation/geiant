@@ -10,7 +10,7 @@ RUN npm install -g pnpm
 
 WORKDIR /app
 COPY . .
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 RUN cd packages/mcp-gdal && npx tsc --outDir dist --esModuleInterop --module nodenext --target es2022 --moduleResolution nodenext --skipLibCheck src/index.ts && cp src/gdal_worker.py dist/gdal_worker.py
 
 EXPOSE 3201
