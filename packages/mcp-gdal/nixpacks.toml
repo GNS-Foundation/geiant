@@ -1,11 +1,11 @@
 [phases.setup]
-nixPkgs = ["gdal", "python312", "python312Packages.numpy"]
+nixPkgs = ["nodejs_22", "python312", "python312Packages.gdal"]
 
 [phases.install]
-cmds = [
-  "pip install gdal==$(gdal-config --version)",
-  "pnpm install"
-]
+cmds = ["pnpm install"]
+
+[phases.build]
+cmds = ["cd packages/mcp-gdal && npx tsc --outDir dist --esModuleInterop --module nodenext --target es2022 --moduleResolution nodenext --skipLibCheck src/index.ts"]
 
 [start]
-cmd = "node_modules/.bin/tsx src/index.ts"
+cmd = "node packages/mcp-gdal/dist/index.js"
