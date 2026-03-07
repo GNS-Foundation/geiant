@@ -13,10 +13,10 @@
         "gdal-async": "^3.12.2",
         "h3-js": "^4.3.3",
         "zod": "^3.25.76",
-        "@geiant/core": "workspace:*"
+        "@geiant/core": "workspace:*",
+        "tsx": "^4.19.3"
     },
     "devDependencies": {
-        "tsx": "^4.19.3",
         "typescript": "^5.8.3"
     }
 }
