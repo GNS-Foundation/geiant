@@ -2,4 +2,4 @@
 NIXPACKS_NO_FROZEN_LOCKFILE = "1"
 
 [phases.install]
-cmds = ["pnpm i --no-frozen-lockfile"]
+cmds = ["pnpm install --no-frozen-lockfile"]
