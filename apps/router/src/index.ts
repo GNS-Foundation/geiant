@@ -49,8 +49,8 @@ async function init() {
     throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required');
   }
 
-  const registry = await createSupabaseRegistry(supabaseUrl, supabaseKey);
-  const ants = await registry.listAnts();
+  const registry = await createSupabaseRegistry();
+  const ants = await registry.list();
   console.log(`[GEIANT Router] ✓ SupabaseRegistry connected — ${ants.length} ant(s) loaded`);
 
   router = new GeiantRouter(registry);
@@ -230,7 +230,7 @@ app.post('/route', async (req: Request, res: Response) => {
         publicKey: decision.selectedAnt.identity.publicKey.substring(0, 16) + '...',
         territoryCellCount: decision.selectedAnt.identity.territoryCells.length,
         complianceScore: decision.selectedAnt.complianceScore,
-        facets: decision.selectedAnt.identity.facets,
+        facet: decision.selectedAnt.identity.facet,
       } : null,
     });
   } catch (err: any) {
