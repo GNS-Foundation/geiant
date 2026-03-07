@@ -1,2 +1,5 @@
+[variables]
+NIXPACKS_NO_FROZEN_LOCKFILE = "1"
+
 [phases.setup]
 nixPkgs = ["nodejs_22", "corepack_22"]
