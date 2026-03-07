@@ -1,9 +1,12 @@
 [variables]
-NIXPACKS_NO_FROZEN_LOCKFILE = "1"
-COREPACK_INTEGRITY_KEYS = "0"
+COREPACK_ENABLE_STRICT = "0"
+PNPM_HOME = "/root/.local/share/pnpm"
 
 [phases.setup]
-nixPkgs = ["nodejs_22", "corepack_22"]
+nixPkgs = ["nodejs_22"]
 
 [phases.install]
-cmds = ["pnpm install --no-frozen-lockfile"]
+cmds = [
+  "npm install -g pnpm@9.15.9",
+  "pnpm install --no-frozen-lockfile"
+]
