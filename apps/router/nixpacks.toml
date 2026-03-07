@@ -1,8 +1,8 @@
-[variables]
-COREPACK_ENABLE_STRICT = "0"
-
-[phases.setup]
-nixPkgs = ["nodejs_22"]
-
 [phases.install]
-cmds = ["npm install -g pnpm@9.15.9 && $(npm bin -g)/pnpm install --no-frozen-lockfile"]
+cmds = ["pnpm install --no-frozen-lockfile"]
+
+[phases.build]
+cmds = ["pnpm run build --filter @geiant/router..."]
+
+[start]
+cmd = "node --import tsx/esm apps/router/src/index.ts"
