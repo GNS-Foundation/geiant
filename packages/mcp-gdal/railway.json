@@ -1,8 +1,8 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
-    "builder": "NIXPACKS",
-    "buildCommand": "pnpm install && cd packages/mcp-gdal && npx tsc --outDir dist --esModuleInterop --module nodenext --target es2022 --moduleResolution nodenext --skipLibCheck src/index.ts"
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "packages/mcp-gdal/Dockerfile"
   },
   "deploy": {
     "startCommand": "node packages/mcp-gdal/dist/index.js",
