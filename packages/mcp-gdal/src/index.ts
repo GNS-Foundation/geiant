@@ -27,7 +27,7 @@ class GdalWorker {
     readyPromise: Promise<void>;
 
     constructor() {
-        this.proc = spawn('python3.12', [WORKER], { stdio: ['pipe', 'pipe', 'pipe'] });
+        this.proc = spawn('python3', [WORKER], { stdio: ['pipe', 'pipe', 'pipe'] });
 
         this.readyPromise = new Promise((resolve, reject) => {
             const t = setTimeout(() => reject(new Error('GDAL worker startup timeout')), 15_000);
@@ -215,7 +215,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             status: 'ok', server: 'geiant-gdal', version: '0.1.0', port: PORT,
-            gdalBackend: 'python3-gdal 3.8.4',
+            gdalBackend: 'python3-gdal',
             tools: ['raster_info', 'raster_stats', 'reproject', 'warp', 'clip_to_geometry', 'contours', 'translate', 'band_algebra', 'h3_sample'],
         }));
         return;

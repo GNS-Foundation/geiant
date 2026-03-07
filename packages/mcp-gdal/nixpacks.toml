@@ -1,11 +1,11 @@
 [phases.setup]
-nixPkgs = ["nodejs_22", "python312", "python312Packages.gdal"]
+nixPkgs = ["nodejs_22", "python3", "python312Packages.gdal"]
 
 [phases.install]
 cmds = ["pnpm install"]
 
 [phases.build]
-cmds = ["cd packages/mcp-gdal && npx tsc --outDir dist --esModuleInterop --module nodenext --target es2022 --moduleResolution nodenext --skipLibCheck src/index.ts"]
+cmds = ["cd packages/mcp-gdal && npx tsc --outDir dist --esModuleInterop --module nodenext --target es2022 --moduleResolution nodenext --skipLibCheck src/index.ts && cp src/gdal_worker.py dist/gdal_worker.py"]
 
 [start]
 cmd = "node packages/mcp-gdal/dist/index.js"
