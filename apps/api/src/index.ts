@@ -6,7 +6,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { InMemoryRegistry, GeiantRouter, seedDevRegistry, createSwitchboard } from '@geiant/core';
-import { SupabaseRegistry } from '../../../packages/core/src/registry/supabase_registry.js';
+import { SupabaseRegistry } from '@geiant/core';
 import { routerRoutes } from './routes/router.js';
 import { registryRoutes } from './routes/registry.js';
 import { jurisdictionRoutes } from './routes/jurisdiction.js';
