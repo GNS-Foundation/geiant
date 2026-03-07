@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["gdal", "python312", "python312Packages.numpy"]
+
+[phases.install]
+cmds = [
+  "pip install gdal==$(gdal-config --version)",
+  "pnpm install"
+]
+
+[start]
+cmd = "node_modules/.bin/tsx src/index.ts"

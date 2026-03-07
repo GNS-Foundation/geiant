@@ -1,0 +1,20 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "nixpacksPlan": {
+      "providers": ["python", "node"],
+      "phases": {
+        "setup": {
+          "nixPkgs": ["gdal", "python312", "python312Packages.gdal", "python312Packages.numpy"]
+        },
+        "install": { "cmds": ["pnpm install"] }
+      }
+    }
+  },
+  "deploy": {
+    "startCommand": "node_modules/.bin/tsx src/index.ts",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}

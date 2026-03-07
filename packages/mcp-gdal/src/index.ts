@@ -27,7 +27,7 @@ class GdalWorker {
     readyPromise: Promise<void>;
 
     constructor() {
-        this.proc = spawn('python3', [WORKER], { stdio: ['pipe', 'pipe', 'pipe'] });
+        this.proc = spawn('python3.12', [WORKER], { stdio: ['pipe', 'pipe', 'pipe'] });
 
         this.readyPromise = new Promise((resolve, reject) => {
             const t = setTimeout(() => reject(new Error('GDAL worker startup timeout')), 15_000);

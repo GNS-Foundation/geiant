@@ -1,4 +1,7 @@
 packages:
-  - 'packages/*'
-  - 'apps/*'
-  - 'packages/mcp-postgis'
+  - packages/*
+  - apps/*
+  - packages/mcp-postgis
+
+ignoredBuiltDependencies:
+  - gdal-async
