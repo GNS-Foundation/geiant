@@ -414,6 +414,126 @@ function createMcpServer(): McpServer {
   }
 );
 
+
+  // ---------------------------------------------------------------------------
+  // Tool: geometry_store  [Phase 3 — Spatial Memory]
+  // ---------------------------------------------------------------------------
+  srv.tool(
+    'geometry_store',
+    'Store a versioned GeoJSON geometry. Creates a new version and closes the previous.',
+    {
+      geometry_id: z.string().min(1).max(200).describe('Logical name, e.g. "rome-municipality"'),
+      geojson: z.string().min(10).describe('GeoJSON geometry string (Polygon or MultiPolygon)'),
+      h3_cells: z.array(z.string()).optional().describe('H3 res-9 cells covering this geometry'),
+      source: z.string().optional().describe('Who is storing this geometry'),
+      metadata: z.record(z.unknown()).optional().describe('Arbitrary key/value metadata'),
+    },
+    async ({ geometry_id, geojson, h3_cells, source, metadata }) => {
+      try {
+        const { createHash } = await import('crypto');
+        const checksum = createHash('sha256').update(geojson).digest('hex');
+        const { data, error } = await db.rpc('geiant_store_geometry', {
+          p_geometry_id: geometry_id,
+          p_geojson: geojson,
+          p_h3_cells: h3_cells ?? [],
+          p_source: source ?? 'geiant-mcp',
+          p_checksum: checksum,
+          p_metadata: metadata ?? {},
+        });
+        if (error) throw new Error(error.message);
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, data }) }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: err.message }) }], isError: true };
+      }
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // Tool: geometry_at  [Phase 3 — Spatial Memory]
+  // ---------------------------------------------------------------------------
+  srv.tool(
+    'geometry_at',
+    'Retrieve the version of a named geometry that was current at a given timestamp. Returns GeoJSON + metadata.',
+    {
+      geometry_id: z.string().min(1).describe('Logical geometry name'),
+      at_time: z.string().optional().describe('ISO 8601 timestamp. Defaults to now().'),
+    },
+    async ({ geometry_id, at_time }) => {
+      try {
+        const { data, error } = await db.rpc('geiant_get_geometry_at', {
+          p_geometry_id: geometry_id,
+          p_at_time: at_time ?? new Date().toISOString(),
+        });
+        if (error) throw new Error(error.message);
+        if (!data || data.length === 0) {
+          return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'No geometry found for ' + geometry_id }) }], isError: true };
+        }
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, data: data[0] }) }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: err.message }) }], isError: true };
+      }
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // Tool: geometry_diff  [Phase 3 — Spatial Memory]
+  // ---------------------------------------------------------------------------
+  srv.tool(
+    'geometry_diff',
+    'Compare two versions of a named geometry at different timestamps. Returns symmetric difference and area of change in sq meters.',
+    {
+      geometry_id: z.string().min(1).describe('Logical geometry name'),
+      t1: z.string().describe('ISO 8601 timestamp for the earlier version'),
+      t2: z.string().optional().describe('ISO 8601 timestamp for the later version. Defaults to now().'),
+    },
+    async ({ geometry_id, t1, t2 }) => {
+      try {
+        const { data, error } = await db.rpc('geiant_diff_geometry', {
+          p_geometry_id: geometry_id,
+          p_t1: t1,
+          p_t2: t2 ?? new Date().toISOString(),
+        });
+        if (error) throw new Error(error.message);
+        if (!data || data.length === 0) {
+          return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Could not diff ' + geometry_id }) }], isError: true };
+        }
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, data: data[0] }) }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: err.message }) }], isError: true };
+      }
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // Tool: validate_coordinates  [Phase 3 — Spatial Memory]
+  // Coordinate guardrail — anti-hallucination check.
+  // ---------------------------------------------------------------------------
+  srv.tool(
+    'validate_coordinates',
+    'Validate a lon/lat coordinate. Checks Earth bounds, detects Null Island (0,0), and optionally verifies containment within a named geometry.',
+    {
+      lon: z.number().describe('Longitude (-180 to 180)'),
+      lat: z.number().describe('Latitude (-90 to 90)'),
+      geometry_id: z.string().optional().describe('Optional geometry name to check containment against'),
+      at_time: z.string().optional().describe('ISO 8601 timestamp for geometry version. Defaults to now().'),
+    },
+    async ({ lon, lat, geometry_id, at_time }) => {
+      try {
+        const { data, error } = await db.rpc('geiant_validate_coordinates', {
+          p_lon: lon,
+          p_lat: lat,
+          p_geometry_id: geometry_id ?? null,
+          p_at_time: at_time ?? new Date().toISOString(),
+        });
+        if (error) throw new Error(error.message);
+        const result = data?.[0] ?? { valid: false, reason: 'No result from guardrail' };
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, data: result }) }], isError: !result.valid };
+      } catch (err) {
+        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: err.message }) }], isError: true };
+      }
+    }
+  );
+
   return srv;
 }
 
@@ -429,7 +549,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       status: 'ok',
       server: 'geiant-postgis',
       version: '0.1.0',
-      tools: 7,
+      tools: 11,
     }));
     return;
   }
