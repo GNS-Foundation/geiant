@@ -1,0 +1,9 @@
+{
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "npm install -g pnpm@9.15.9 && pnpm install --no-frozen-lockfile"
+  },
+  "deploy": {
+    "startCommand": "node --import tsx/esm packages/mcp-perception/src/index.ts"
+  }
+}

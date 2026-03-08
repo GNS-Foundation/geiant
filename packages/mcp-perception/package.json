@@ -1,0 +1,22 @@
+{
+  "name": "@geiant/mcp-perception",
+  "version": "0.1.0",
+  "description": "GEIANT Perception Layer MCP Server — satellite tile pipeline, EO model inference",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@geiant/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "h3-js": "^4.4.0",
+    "node-fetch": "^3.3.2",
+    "zod": "^3.25.76",
+    "tsx": "^4.19.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
