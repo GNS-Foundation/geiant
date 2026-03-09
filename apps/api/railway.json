@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "cd apps/api && npx tsx src/index.ts",
+    "startCommand": "sh -c 'cd apps/api && npx tsx src/index.ts'",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
