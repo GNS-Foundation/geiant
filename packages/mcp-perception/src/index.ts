@@ -2,30 +2,54 @@
  * @geiant/mcp-perception
  * GEIANT Perception Layer MCP Server
  *
- * Sub-phase 4.0 — Tile Pipeline
- *   perception_fetch_tile  ← implemented now (no GPU required)
+ * Sub-phase 4.0 — Tile Pipeline       ✓ COMPLETE
+ *   perception_fetch_tile
  *
- * Sub-phase 4.1 — perception_classify  (Prithvi-EO-2.0, TODO)
- * Sub-phase 4.2 — perception_embed     (Clay v1.5, TODO)
- * Sub-phase 4.3 — perception_weather   (Prithvi-WxC, TODO)
+ * Sub-phase 4.1 — Classification      ✓ IMPLEMENTED (activate when HF endpoint live)
+ *   perception_classify → Prithvi-EO-2.0-300M-TL-Sen1Floods11
+ *   Env vars required:
+ *     PRITHVI_ENDPOINT_URL  — HF Dedicated Endpoint URL
+ *     HF_TOKEN              — HuggingFace token (Inference scope)
+ *     SUPABASE_URL          — for writing results to Spatial Memory
+ *     SUPABASE_SERVICE_ROLE_KEY
+ *
+ * Sub-phase 4.2 — perception_embed    (Clay v1.5, TODO)
+ * Sub-phase 4.3 — perception_weather  (Prithvi-WxC, TODO)
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { cellToBoundary, getResolution } from 'h3-js';
+import { cellToBoundary, getResolution, latLngToCell } from 'h3-js';
+import { createClient } from '@supabase/supabase-js';
+import { createHash, randomUUID } from 'crypto';
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-const PC_STAC_URL  = 'https://planetarycomputer.microsoft.com/api/stac/v1';
-const PC_SIGN_URL  = 'https://planetarycomputer.microsoft.com/api/sas/v1/sign';
+const PC_STAC_URL = 'https://planetarycomputer.microsoft.com/api/stac/v1';
+const PC_SIGN_URL = 'https://planetarycomputer.microsoft.com/api/sas/v1/sign';
 
-// Sentinel-2 L2A bands required by Prithvi-EO-2.0 and Clay
-// B02=Blue  B03=Green  B04=Red  B8A=Narrow NIR  B11=SWIR1  B12=SWIR2
+// Env vars (set in Railway for the deployed service)
+const PRITHVI_ENDPOINT_URL = process.env.PRITHVI_ENDPOINT_URL ?? '';
+const HF_TOKEN             = process.env.HF_TOKEN ?? '';
+const SUPABASE_URL         = process.env.SUPABASE_URL ?? '';
+const SUPABASE_KEY         = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+
+// Sentinel-2 L2A bands — order must match Prithvi training config
+// Blue, Green, Red, Narrow NIR, SWIR1, SWIR2
 const REQUIRED_BANDS = ['B02', 'B03', 'B04', 'B8A', 'B11', 'B12'] as const;
 type Band = typeof REQUIRED_BANDS[number];
+
+// ---------------------------------------------------------------------------
+// Supabase client (lazy — only instantiated if SUPABASE_URL is set)
+// ---------------------------------------------------------------------------
+
+function getSupabase() {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return null;
+  return createClient(SUPABASE_URL, SUPABASE_KEY);
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,14 +60,10 @@ interface StacItem {
   properties: {
     datetime: string;
     'eo:cloud_cover': number;
-    'platform': string;
+    platform: string;
   };
   assets: Record<string, { href: string; type?: string }>;
   bbox: [number, number, number, number];
-  geometry: {
-    type: string;
-    coordinates: number[][][];
-  };
 }
 
 interface TileResult {
@@ -55,31 +75,65 @@ interface TileResult {
   bbox: { west: number; south: number; east: number; north: number };
   h3_cell: string;
   h3_resolution: number;
-  bands: Record<Band, string>;   // band → signed COG URL
+  bands: Record<Band, string>;
   stac_item_url: string;
   status: 'ok' | 'no_tile_found' | 'error';
   message?: string;
 }
+
+interface ClassifyResult {
+  // Perception chain — stored atomically in Spatial Memory
+  perception_chain: {
+    h3_cell: string;
+    tile_id: string;
+    acquisition_datetime: string;
+    model_id: string;
+    model_version: string;
+    confidence: number;
+    agent_note: string;
+  };
+  // Classification output
+  dominant_class: 'no_flood' | 'flood' | 'cloud_nodata';
+  flood_pixel_pct: number;
+  confidence: number;
+  mask_shape: [number, number];
+  class_counts: {
+    no_flood: number;
+    flood: number;
+    cloud_nodata: number;
+  };
+  // Spatial Memory write result
+  geometry_state_id: string | null;
+  spatial_memory_written: boolean;
+  status: 'ok' | 'endpoint_unavailable' | 'error';
+  message?: string;
+}
+
+// ---------------------------------------------------------------------------
+// In-memory tile cache: tile_id → TileResult
+// Allows perception_classify to reference a tile fetched earlier in the session
+// ---------------------------------------------------------------------------
+
+const tileCache = new Map<string, TileResult>();
 
 // ---------------------------------------------------------------------------
 // H3 → bounding box
 // ---------------------------------------------------------------------------
 
 function h3ToBbox(h3Cell: string): [number, number, number, number] {
-  // cellToBoundary returns [lat, lng] pairs — flip to [lng, lat] for GeoJSON
   const boundary = cellToBoundary(h3Cell);
   const lons = boundary.map(([lat, lng]) => lng);
   const lats = boundary.map(([lat, lng]) => lat);
   return [
-    Math.min(...lons), // west
-    Math.min(...lats), // south
-    Math.max(...lons), // east
-    Math.max(...lats), // north
+    Math.min(...lons),
+    Math.min(...lats),
+    Math.max(...lons),
+    Math.max(...lats),
   ];
 }
 
 // ---------------------------------------------------------------------------
-// Planetary Computer — search for least-cloudy Sentinel-2 tile
+// Planetary Computer helpers
 // ---------------------------------------------------------------------------
 
 async function searchTile(
@@ -87,64 +141,44 @@ async function searchTile(
   datetimeRange: string,
   maxCloudCover: number,
 ): Promise<StacItem | null> {
-  const body = {
-    collections: ['sentinel-2-l2a'],
-    bbox,
-    datetime: datetimeRange,
-    query: { 'eo:cloud_cover': { lt: maxCloudCover } },
-    sortby: [{ field: 'eo:cloud_cover', direction: 'asc' }],
-    limit: 5,
-  };
-
   const res = await fetch(`${PC_STAC_URL}/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      collections: ['sentinel-2-l2a'],
+      bbox,
+      datetime: datetimeRange,
+      query: { 'eo:cloud_cover': { lt: maxCloudCover } },
+      sortby: [{ field: 'eo:cloud_cover', direction: 'asc' }],
+      limit: 5,
+    }),
   });
-
-  if (!res.ok) {
-    throw new Error(`STAC search failed: ${res.status} ${await res.text()}`);
-  }
-
+  if (!res.ok) throw new Error(`STAC search failed: ${res.status}`);
   const data = await res.json() as { features: StacItem[] };
-  if (!data.features || data.features.length === 0) return null;
-
-  // Return least cloudy (already sorted)
-  return data.features[0];
+  return data.features?.[0] ?? null;
 }
-
-// ---------------------------------------------------------------------------
-// Planetary Computer — sign asset URLs for access
-// PC public data works without signing, but signing gives better rate limits
-// ---------------------------------------------------------------------------
 
 async function signUrl(href: string): Promise<string> {
   try {
     const res = await fetch(`${PC_SIGN_URL}?href=${encodeURIComponent(href)}`);
-    if (!res.ok) return href; // fall back to unsigned
+    if (!res.ok) return href;
     const data = await res.json() as { href: string };
     return data.href ?? href;
-  } catch {
-    return href; // fall back gracefully
-  }
+  } catch { return href; }
 }
 
 async function signBandUrls(item: StacItem): Promise<Record<Band, string>> {
   const result = {} as Record<Band, string>;
-
   for (const band of REQUIRED_BANDS) {
     const asset = item.assets[band];
-    if (!asset) {
-      throw new Error(`Band ${band} not found in STAC item ${item.id}`);
-    }
+    if (!asset) throw new Error(`Band ${band} not found in STAC item ${item.id}`);
     result[band] = await signUrl(asset.href);
   }
-
   return result;
 }
 
 // ---------------------------------------------------------------------------
-// Tool: perception_fetch_tile
+// Tool implementation: perception_fetch_tile
 // ---------------------------------------------------------------------------
 
 async function fetchTile(params: {
@@ -155,7 +189,6 @@ async function fetchTile(params: {
 }): Promise<TileResult> {
   const { h3_cell, max_cloud_cover = 20, days_back = 30 } = params;
 
-  // 1. Validate H3 cell
   let bbox: [number, number, number, number];
   let resolution: number;
   try {
@@ -163,88 +196,59 @@ async function fetchTile(params: {
     resolution = getResolution(h3_cell);
   } catch (err) {
     return {
-      tile_id: '',
-      collection: 'sentinel-2-l2a',
-      platform: '',
-      acquisition_datetime: '',
-      cloud_cover_pct: 0,
+      tile_id: '', collection: 'sentinel-2-l2a', platform: '',
+      acquisition_datetime: '', cloud_cover_pct: 0,
       bbox: { west: 0, south: 0, east: 0, north: 0 },
-      h3_cell,
-      h3_resolution: -1,
-      bands: {} as Record<Band, string>,
-      stac_item_url: '',
-      status: 'error',
-      message: `Invalid H3 cell: ${err}`,
+      h3_cell, h3_resolution: -1, bands: {} as Record<Band, string>,
+      stac_item_url: '', status: 'error', message: `Invalid H3 cell: ${err}`,
     };
   }
 
-  // 2. Build date range
-  const endDate   = params.timestamp
-    ? new Date(params.timestamp)
-    : new Date();
+  const endDate   = params.timestamp ? new Date(params.timestamp) : new Date();
   const startDate = new Date(endDate.getTime() - days_back * 86_400_000);
   const datetimeRange = `${startDate.toISOString().slice(0, 10)}/${endDate.toISOString().slice(0, 10)}`;
 
-  // 3. Search Planetary Computer STAC
   let item: StacItem | null;
   try {
     item = await searchTile(bbox, datetimeRange, max_cloud_cover);
   } catch (err) {
     return {
-      tile_id: '',
-      collection: 'sentinel-2-l2a',
-      platform: '',
-      acquisition_datetime: '',
-      cloud_cover_pct: 0,
+      tile_id: '', collection: 'sentinel-2-l2a', platform: '',
+      acquisition_datetime: '', cloud_cover_pct: 0,
       bbox: { west: bbox[0], south: bbox[1], east: bbox[2], north: bbox[3] },
-      h3_cell,
-      h3_resolution: resolution,
-      bands: {} as Record<Band, string>,
-      stac_item_url: '',
-      status: 'error',
-      message: `STAC search error: ${err}`,
+      h3_cell, h3_resolution: resolution, bands: {} as Record<Band, string>,
+      stac_item_url: '', status: 'error', message: `STAC search error: ${err}`,
     };
   }
 
   if (!item) {
     return {
-      tile_id: '',
-      collection: 'sentinel-2-l2a',
-      platform: '',
-      acquisition_datetime: '',
-      cloud_cover_pct: 0,
+      tile_id: '', collection: 'sentinel-2-l2a', platform: '',
+      acquisition_datetime: '', cloud_cover_pct: 0,
       bbox: { west: bbox[0], south: bbox[1], east: bbox[2], north: bbox[3] },
-      h3_cell,
-      h3_resolution: resolution,
-      bands: {} as Record<Band, string>,
-      stac_item_url: '',
-      status: 'no_tile_found',
-      message: `No Sentinel-2 tile with cloud cover < ${max_cloud_cover}% found for ${h3_cell} in the last ${days_back} days`,
+      h3_cell, h3_resolution: resolution, bands: {} as Record<Band, string>,
+      stac_item_url: '', status: 'no_tile_found',
+      message: `No tile with cloud cover < ${max_cloud_cover}% in last ${days_back} days`,
     };
   }
 
-  // 4. Sign band URLs
   let bands: Record<Band, string>;
   try {
     bands = await signBandUrls(item);
   } catch (err) {
     return {
-      tile_id: item.id,
-      collection: 'sentinel-2-l2a',
+      tile_id: item.id, collection: 'sentinel-2-l2a',
       platform: item.properties.platform,
       acquisition_datetime: item.properties.datetime,
       cloud_cover_pct: item.properties['eo:cloud_cover'],
       bbox: { west: bbox[0], south: bbox[1], east: bbox[2], north: bbox[3] },
-      h3_cell,
-      h3_resolution: resolution,
-      bands: {} as Record<Band, string>,
+      h3_cell, h3_resolution: resolution, bands: {} as Record<Band, string>,
       stac_item_url: `${PC_STAC_URL}/collections/sentinel-2-l2a/items/${item.id}`,
-      status: 'error',
-      message: `Band URL signing failed: ${err}`,
+      status: 'error', message: `Band URL signing failed: ${err}`,
     };
   }
 
-  return {
+  const result: TileResult = {
     tile_id: item.id,
     collection: 'sentinel-2-l2a',
     platform: item.properties.platform,
@@ -257,6 +261,222 @@ async function fetchTile(params: {
     stac_item_url: `${PC_STAC_URL}/collections/sentinel-2-l2a/items/${item.id}`,
     status: 'ok',
   };
+
+  // Cache for perception_classify to reference
+  tileCache.set(item.id, result);
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Tool implementation: perception_classify
+// ---------------------------------------------------------------------------
+
+async function classifyTile(params: {
+  tile_id: string;
+  h3_cell?: string;
+  task: 'flood' | 'landcover' | 'burnscar' | 'anomaly';
+  write_to_spatial_memory?: boolean;
+}): Promise<ClassifyResult> {
+  const { tile_id, task, write_to_spatial_memory = true } = params;
+
+  // 1. Check endpoint is configured
+  if (!PRITHVI_ENDPOINT_URL) {
+    return {
+      perception_chain: {
+        h3_cell: params.h3_cell ?? '',
+        tile_id,
+        acquisition_datetime: '',
+        model_id: 'Prithvi-EO-2.0-300M-TL-Sen1Floods11',
+        model_version: '1.0.0',
+        confidence: 0,
+        agent_note: 'endpoint not configured',
+      },
+      dominant_class: 'no_flood',
+      flood_pixel_pct: 0,
+      confidence: 0,
+      mask_shape: [0, 0],
+      class_counts: { no_flood: 0, flood: 0, cloud_nodata: 0 },
+      geometry_state_id: null,
+      spatial_memory_written: false,
+      status: 'endpoint_unavailable',
+      message: 'PRITHVI_ENDPOINT_URL env var not set. Deploy HF Dedicated Endpoint first.',
+    };
+  }
+
+  // 2. Retrieve tile from cache
+  const tile = tileCache.get(tile_id);
+  if (!tile) {
+    return {
+      perception_chain: {
+        h3_cell: params.h3_cell ?? '',
+        tile_id,
+        acquisition_datetime: '',
+        model_id: 'Prithvi-EO-2.0-300M-TL-Sen1Floods11',
+        model_version: '1.0.0',
+        confidence: 0,
+        agent_note: 'tile not in cache',
+      },
+      dominant_class: 'no_flood',
+      flood_pixel_pct: 0,
+      confidence: 0,
+      mask_shape: [0, 0],
+      class_counts: { no_flood: 0, flood: 0, cloud_nodata: 0 },
+      geometry_state_id: null,
+      spatial_memory_written: false,
+      status: 'error',
+      message: `tile_id ${tile_id} not found in session cache. Call perception_fetch_tile first.`,
+    };
+  }
+
+  const h3_cell = params.h3_cell ?? tile.h3_cell;
+
+  // 3. Call HuggingFace Dedicated Endpoint
+  // handler.py receives the band URLs and returns the classification result
+  let inferenceResult: {
+    dominant_class: 'no_flood' | 'flood' | 'cloud_nodata';
+    flood_pixel_pct: number;
+    confidence: number;
+    mask_shape: [number, number];
+    class_counts: { no_flood: number; flood: number; cloud_nodata: number };
+    model_id: string;
+    model_version: string;
+  };
+
+  try {
+    // RunPod Serverless Endpoint (replaces HF Dedicated Endpoint)
+    const endpointRes = await fetch(PRITHVI_ENDPOINT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${HF_TOKEN}`,  // HF_TOKEN holds RunPod API key
+      },
+      body: JSON.stringify({
+        input: {
+          bands: tile.bands,
+          bbox: tile.bbox,
+          chip_size: 512,
+          confidence_threshold: 0.5,
+        },
+      }),
+      // 5 min timeout — model cold start can take ~2 min
+      signal: AbortSignal.timeout(300_000),
+    });
+
+    if (!endpointRes.ok) {
+      const errText = await endpointRes.text();
+      throw new Error(`RunPod endpoint HTTP ${endpointRes.status}: ${errText}`);
+    }
+
+    const runpodResult = await endpointRes.json();
+    if (runpodResult.status === 'FAILED') {
+      throw new Error(`RunPod job failed: ${JSON.stringify(runpodResult)}`);
+    }
+    inferenceResult = runpodResult.output ?? runpodResult;
+
+  } catch (err) {
+    return {
+      perception_chain: {
+        h3_cell,
+        tile_id,
+        acquisition_datetime: tile.acquisition_datetime,
+        model_id: 'Prithvi-EO-2.0-300M-TL-Sen1Floods11',
+        model_version: '1.0.0',
+        confidence: 0,
+        agent_note: 'inference failed',
+      },
+      dominant_class: 'no_flood',
+      flood_pixel_pct: 0,
+      confidence: 0,
+      mask_shape: [0, 0],
+      class_counts: { no_flood: 0, flood: 0, cloud_nodata: 0 },
+      geometry_state_id: null,
+      spatial_memory_written: false,
+      status: 'error',
+      message: `Prithvi inference failed: ${err}`,
+    };
+  }
+
+  // 4. Build the perception chain — the GEIANT audit trail
+  const perceptionChain = {
+    h3_cell,
+    tile_id,
+    acquisition_datetime: tile.acquisition_datetime,
+    model_id: inferenceResult.model_id ?? 'Prithvi-EO-2.0-300M-TL-Sen1Floods11',
+    model_version: inferenceResult.model_version ?? '1.0.0',
+    confidence: inferenceResult.confidence,
+    agent_note: `flood classification via Sen1Floods11 fine-tune; task=${task}`,
+  };
+
+  // 5. Write to Spatial Memory (geiant_geometry_state)
+  let geometryStateId: string | null = null;
+  let spatialMemoryWritten = false;
+
+  if (write_to_spatial_memory) {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        // Build a point geometry at the H3 cell centroid
+        // (full polygon geometry write would require the H3 boundary)
+        const bbox = tile.bbox;
+        const centerLon = (bbox.west + bbox.east) / 2;
+        const centerLat = (bbox.south + bbox.north) / 2;
+
+        const geometryId = `perception-${h3_cell}-${tile_id}`;
+        const now = new Date().toISOString();
+
+        // Build metadata — this IS the perception chain
+        const metadata = {
+          perception_chain: perceptionChain,
+          classification: {
+            dominant_class: inferenceResult.dominant_class,
+            flood_pixel_pct: inferenceResult.flood_pixel_pct,
+            class_counts: inferenceResult.class_counts,
+          },
+          stac_item_url: tile.stac_item_url,
+          platform: tile.platform,
+          cloud_cover_pct: tile.cloud_cover_pct,
+        };
+
+        const checksum = createHash('sha256')
+          .update(JSON.stringify(metadata))
+          .digest('hex');
+
+        const { data: stored, error } = await supabase.rpc(
+          'geiant_store_geometry',
+          {
+            p_geometry_id:  geometryId,
+            p_geom_wkt:     `POINT(${centerLon} ${centerLat})`,
+            p_h3_cells:     [h3_cell],
+            p_source:       'mcp-perception/perception_classify',
+            p_checksum:     checksum,
+            p_metadata:     metadata,
+          }
+        );
+
+        if (error) {
+          console.error('⚠️  Spatial Memory write failed:', error.message);
+        } else {
+          geometryStateId = stored ?? geometryId;
+          spatialMemoryWritten = true;
+          console.error(`✅  Perception chain written to Spatial Memory: ${geometryStateId}`);
+        }
+      } catch (err) {
+        console.error('⚠️  Spatial Memory write exception:', err);
+      }
+    }
+  }
+
+  return {
+    perception_chain: perceptionChain,
+    dominant_class: inferenceResult.dominant_class,
+    flood_pixel_pct: inferenceResult.flood_pixel_pct,
+    confidence: inferenceResult.confidence,
+    mask_shape: inferenceResult.mask_shape,
+    class_counts: inferenceResult.class_counts,
+    geometry_state_id: geometryStateId,
+    spatial_memory_written: spatialMemoryWritten,
+    status: 'ok',
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +486,7 @@ async function fetchTile(params: {
 function buildServer(): McpServer {
   const srv = new McpServer({
     name: 'geiant-perception',
-    version: '0.1.0',
+    version: '0.2.0',
   });
 
   // ── perception_fetch_tile ────────────────────────────────────────────────
@@ -275,53 +495,57 @@ function buildServer(): McpServer {
     'Fetch the least-cloudy Sentinel-2 L2A tile covering a given H3 cell from ' +
     'Microsoft Planetary Computer. Returns signed COG band URLs for all 6 ' +
     'Prithvi/Clay spectral bands (B02 Blue, B03 Green, B04 Red, B8A NIR, ' +
-    'B11 SWIR1, B12 SWIR2), plus tile metadata (tile_id, acquisition_datetime, ' +
-    'cloud_cover_pct, bbox). Always call this first before perception_classify ' +
-    'or perception_embed.',
+    'B11 SWIR1, B12 SWIR2), plus tile metadata. The tile is cached in memory ' +
+    'for subsequent perception_classify or perception_embed calls.',
     {
-      h3_cell: z.string().describe(
-        'H3 cell ID at any resolution. The bounding box is derived automatically.'
-      ),
+      h3_cell: z.string().describe('H3 cell ID at any resolution.'),
       timestamp: z.string().optional().describe(
-        'ISO 8601 datetime. Search for tiles up to days_back before this point. ' +
-        'Defaults to now.'
+        'ISO 8601 datetime. Search back from this point. Defaults to now.'
       ),
       max_cloud_cover: z.number().min(0).max(100).optional().describe(
-        'Maximum cloud cover percentage (0–100). Default: 20.'
+        'Max cloud cover %. Default: 20.'
       ),
       days_back: z.number().min(1).max(365).optional().describe(
-        'How many days back to search. Default: 30.'
+        'Days to search back. Default: 30.'
       ),
     },
     async (params) => {
       const result = await fetchTile(params);
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify(result, null, 2),
-        }],
-      };
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
     },
   );
 
-  // ── perception_classify  (Sub-phase 4.1 — stub) ─────────────────────────
+  // ── perception_classify ──────────────────────────────────────────────────
   srv.tool(
     'perception_classify',
-    '[Sub-phase 4.1 — NOT YET IMPLEMENTED] Will run Prithvi-EO-2.0 flood/land ' +
-    'cover classification on a tile returned by perception_fetch_tile.',
+    'Run Prithvi-EO-2.0-300M-TL-Sen1Floods11 flood classification on a Sentinel-2 ' +
+    'tile previously fetched by perception_fetch_tile. Sends the 6-band chip to a ' +
+    'HuggingFace Dedicated Endpoint and returns: dominant_class (flood/no_flood/' +
+    'cloud_nodata), flood_pixel_pct, confidence, class_counts, and the full ' +
+    'perception_chain (h3_cell + tile_id + acquisition_datetime + model_id + ' +
+    'model_version + confidence). The perception chain is written atomically to ' +
+    'Spatial Memory (geiant_geometry_state) so every classification is permanently ' +
+    'auditable via geometry_at. Requires PRITHVI_ENDPOINT_URL and HF_TOKEN env vars.',
     {
-      tile_id: z.string().describe('tile_id from perception_fetch_tile result'),
-      task: z.enum(['flood', 'landcover', 'burnscar', 'anomaly']),
+      tile_id: z.string().describe(
+        'tile_id from perception_fetch_tile result (must be in session cache).'
+      ),
+      task: z.enum(['flood', 'landcover', 'burnscar', 'anomaly']).describe(
+        'Classification task. Currently only "flood" is supported by the ' +
+        'Sen1Floods11 fine-tune. Other tasks will route to future model variants.'
+      ),
+      h3_cell: z.string().optional().describe(
+        'Override H3 cell for the Spatial Memory write. Defaults to the cell ' +
+        'from the original perception_fetch_tile call.'
+      ),
+      write_to_spatial_memory: z.boolean().optional().describe(
+        'Write perception chain to geiant_geometry_state. Default: true.'
+      ),
     },
-    async () => ({
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          status: 'not_implemented',
-          message: 'perception_classify will be available in Sub-phase 4.1 (Prithvi-EO-2.0 HuggingFace endpoint). Use perception_fetch_tile for now.',
-        }),
-      }],
-    }),
+    async (params) => {
+      const result = await classifyTile(params);
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    },
   );
 
   // ── perception_embed  (Sub-phase 4.2 — stub) ────────────────────────────
@@ -347,8 +571,7 @@ function buildServer(): McpServer {
   srv.tool(
     'perception_weather',
     '[Sub-phase 4.3 — NOT YET IMPLEMENTED] Will query Prithvi-WxC for ' +
-    'atmospheric conditions (wind, precipitation, temperature anomaly) at a ' +
-    'geometry and timestamp.',
+    'atmospheric conditions (wind, precipitation, temperature anomaly).',
     {
       h3_cell: z.string(),
       timestamp: z.string().optional(),
@@ -372,11 +595,17 @@ function buildServer(): McpServer {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  console.error('🛰️  GEIANT mcp-perception starting (sub-phase 4.0 — tile pipeline)');
+  const prithviReady = !!PRITHVI_ENDPOINT_URL;
+  console.error('🛰️  GEIANT mcp-perception v0.2.0 starting');
+  console.error(`   perception_fetch_tile  ✓ live`);
+  console.error(`   perception_classify    ${prithviReady ? '✓ live' : '⏳ waiting for PRITHVI_ENDPOINT_URL'}`);
+  console.error(`   perception_embed       ⏳ sub-phase 4.2`);
+  console.error(`   perception_weather     ⏳ sub-phase 4.3`);
+
   const srv = buildServer();
   const transport = new StdioServerTransport();
   await srv.connect(transport);
-  console.error('✅  mcp-perception ready — 4 tools registered (1 live, 3 stubs)');
+  console.error('✅  mcp-perception ready — 4 tools registered');
 }
 
 main().catch((err) => {
