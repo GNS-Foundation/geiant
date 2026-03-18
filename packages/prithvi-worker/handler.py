@@ -36,6 +36,7 @@ def load_clay():
     if CLAY_MODEL is not None:
         return CLAY_MODEL
     import torch
+    import os as _os; _os.chdir("/app/clay_repo")
     from claymodel.module import ClayMAEModule
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Loading Clay v1.5 on {device}...")
@@ -57,8 +58,19 @@ def fetch_band_chip(url, bbox, chip_size=256):
     import rasterio
     from rasterio.windows import from_bounds
     from rasterio.enums import Resampling
+    from rasterio.crs import CRS
+    from rasterio.warp import transform_bounds
     with rasterio.open(url) as src:
-        window = from_bounds(bbox["west"], bbox["south"], bbox["east"], bbox["north"], transform=src.transform)
+        # Reproject bbox from WGS84 to tile native CRS
+        src_crs = CRS.from_epsg(4326)
+        if src.crs and src.crs != src_crs:
+            west, south, east, north = transform_bounds(
+                src_crs, src.crs,
+                bbox["west"], bbox["south"], bbox["east"], bbox["north"]
+            )
+        else:
+            west, south, east, north = bbox["west"], bbox["south"], bbox["east"], bbox["north"]
+        window = from_bounds(west, south, east, north, transform=src.transform)
         data = src.read(1, window=window, out_shape=(chip_size, chip_size), resampling=Resampling.bilinear)
     return data.astype(np.float32)
 

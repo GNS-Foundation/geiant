@@ -7,6 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Clone Clay repo for configs/metadata.yaml
+RUN git clone --depth 1 https://github.com/Clay-foundation/model.git /app/clay_repo
+
 # Pre-download Prithvi weights
 RUN python -c "\
 from huggingface_hub import snapshot_download; \
@@ -24,6 +27,8 @@ print('Clay v1.5 cached')"
 
 ENV HF_HOME=/app/hf_cache
 ENV TRANSFORMERS_CACHE=/app/hf_cache
+# Clay looks for configs/metadata.yaml relative to cwd — set workdir to clay repo
+ENV CLAY_CONFIG_DIR=/app/clay_repo
 
 COPY handler.py .
 CMD ["python", "-u", "handler.py"]
