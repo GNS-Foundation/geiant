@@ -7,28 +7,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Clone Clay repo for configs/metadata.yaml
+# Clone Clay repo for configs/metadata.yaml (small — just source code)
 RUN git clone --depth 1 https://github.com/Clay-foundation/model.git /app/clay_repo
 
-# Pre-download Prithvi weights
-RUN python -c "\
-from huggingface_hub import snapshot_download; \
-snapshot_download('ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL-Sen1Floods11', cache_dir='/app/hf_cache'); \
-snapshot_download('ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL', cache_dir='/app/hf_cache', \
-  allow_patterns=['prithvi_mae.py','config.json']); \
-print('Prithvi cached')"
-
-# Pre-download Clay v1.5 weights
-RUN python -c "\
-from huggingface_hub import hf_hub_download; \
-hf_hub_download(repo_id='made-with-clay/Clay', \
-  filename='v1.5/clay-v1.5.ckpt', local_dir='/app/hf_cache'); \
-print('Clay v1.5 cached')"
+# Models are downloaded at runtime on first job (NOT baked in)
+# This keeps the image small (~3GB vs ~10GB)
 
 ENV HF_HOME=/app/hf_cache
 ENV TRANSFORMERS_CACHE=/app/hf_cache
-# Clay looks for configs/metadata.yaml relative to cwd — set workdir to clay repo
-ENV CLAY_CONFIG_DIR=/app/clay_repo
 
 COPY handler.py .
 CMD ["python", "-u", "handler.py"]

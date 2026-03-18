@@ -36,8 +36,9 @@ def load_clay():
     if CLAY_MODEL is not None:
         return CLAY_MODEL
     import torch
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    device = "cpu"
     from claymodel.module import ClayMAEModule
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Loading Clay v1.5 on {device}...")
     ckpt_path = "/app/hf_cache/v1.5/clay-v1.5.ckpt"
     if not os.path.exists(ckpt_path):
@@ -47,10 +48,9 @@ def load_clay():
             filename="v1.5/clay-v1.5.ckpt",
             cache_dir="/app/hf_cache"
         )
-    CLAY_MODEL = ClayMAEModule.load_from_checkpoint(ckpt_path, map_location=device, strict=False)
+    CLAY_MODEL = ClayMAEModule.load_from_checkpoint(ckpt_path, map_location="cpu", strict=False)
     CLAY_MODEL.eval()
-    CLAY_MODEL.to(device)
-    print("Clay v1.5 loaded")
+    print("Clay v1.5 loaded on CPU")
     return CLAY_MODEL
 
 def fetch_band_chip(url, bbox, chip_size=256):
