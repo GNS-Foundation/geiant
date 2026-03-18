@@ -36,7 +36,6 @@ def load_clay():
     if CLAY_MODEL is not None:
         return CLAY_MODEL
     import torch
-    import os as _os; _os.chdir("/app/clay_repo")
     from claymodel.module import ClayMAEModule
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Loading Clay v1.5 on {device}...")
