@@ -144,14 +144,30 @@ def run_classify(band_stack, conf_threshold=0.5):
     }
 
 def run_embed(band_stack, metadata_in):
-    import torch
+    import torch, yaml
     model = load_clay()
     device = next(model.parameters()).device
-    normalized = np.clip(band_stack / 10000.0, 0, 1)
-    chips = torch.from_numpy(normalized).unsqueeze(0).float().to(device)
+
     lat  = float(metadata_in.get("lat", 0.0))
     lon  = float(metadata_in.get("lon", 0.0))
     timestamp = metadata_in.get("timestamp", "2026-01-01T00:00:00Z")
+
+    # Load Clay sensor metadata for normalization + wavelengths
+    with open("/app/clay_repo/configs/metadata.yaml") as f:
+        meta = yaml.safe_load(f)
+    sensor = "sentinel-2-l2a"
+    # Clay sentinel-2-l2a uses 10 bands — we only have 6 (B02,B03,B04,B8A,B11,B12)
+    # Use only the 6 bands we have, get their wavelengths + norm stats
+    our_bands = ["blue", "green", "red", "nir08", "swir16", "swir22"]
+    smeta = meta[sensor]["bands"]
+    means = np.array([smeta["mean"][b] for b in our_bands], dtype=np.float32)
+    stds  = np.array([smeta["std"][b]  for b in our_bands], dtype=np.float32)
+    waves = np.array([smeta["wavelength"][b] * 1000 for b in our_bands], dtype=np.float32)
+
+    # Normalize using Clay stats
+    norm = (band_stack - means[:,None,None]) / stds[:,None,None]
+    chips = torch.from_numpy(norm).unsqueeze(0).float().to(device)  # (1,6,H,W)
+
     from datetime import datetime
     try:
         dt   = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
@@ -159,8 +175,11 @@ def run_embed(band_stack, metadata_in):
         hour = dt.hour
     except Exception:
         week, hour = 1, 0
+
+    # timestamps: [week, hour, lat, lon]
     timestamps  = torch.tensor([[week, hour, lat, lon]], dtype=torch.float32).to(device)
-    wavelengths = torch.tensor([[490, 560, 665, 865, 1610, 2190]], dtype=torch.float32).to(device)
+    wavelengths = torch.tensor([waves.tolist()], dtype=torch.float32).to(device)
+
     with torch.no_grad():
         embedding = model.encoder(chips, timestamps, wavelengths)
     emb = embedding.squeeze(0).cpu().numpy()
