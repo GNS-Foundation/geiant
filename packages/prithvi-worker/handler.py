@@ -183,10 +183,10 @@ def run_embed(band_stack, metadata_in):
     # Input must be a batch dict with pixels, time, latlon, gsd, waves keys
     batch = {
         "pixels":    chips,                                                    # (1, 6, H, W)
-        "time":      torch.tensor([[week, hour]], dtype=torch.float32).to(device),
-        "latlon":    torch.tensor([[lat, lon]], dtype=torch.float32).to(device),
-        "gsd":       torch.tensor([[gsd]], dtype=torch.float32).to(device),
-        "waves":     wavelengths,                                              # (1, 6)
+        "time":      torch.zeros(1, 4, dtype=torch.float32).to(device),
+        "latlon":    torch.zeros(1, 4, dtype=torch.float32).to(device),
+        "gsd":       torch.tensor([gsd], dtype=torch.float32).to(device),
+        "waves":     torch.tensor(waves.tolist(), dtype=torch.float32).to(device),
     }
     with torch.no_grad():
         try:

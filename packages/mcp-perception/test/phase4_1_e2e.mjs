@@ -15,16 +15,23 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const ROME_H3_CELL   = '851f9ebfffffff';
-const PC_STAC_URL    = 'https://planetarycomputer.microsoft.com/api/stac/v1';
-const PC_SIGN_URL    = 'https://planetarycomputer.microsoft.com/api/sas/v1/sign';
+const ROME_H3_CELL = '851f9ebfffffff';
+const STAC_URL = 'https://earth-search.aws.element84.com/v1';
 
-const PRITHVI_URL    = process.env.PRITHVI_ENDPOINT_URL;
-const HF_TOKEN       = process.env.HF_TOKEN;
-const SUPABASE_URL   = process.env.SUPABASE_URL;
-const SUPABASE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const PRITHVI_URL = process.env.PRITHVI_ENDPOINT_URL;
+const HF_TOKEN = process.env.HF_TOKEN;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const REQUIRED_BANDS = ['B02', 'B03', 'B04', 'B8A', 'B11', 'B12'];
+// Element84 uses named Sentinel-2 bands
+const REQUIRED_BANDS = {
+  B02: 'blue',
+  B03: 'green',
+  B04: 'red',
+  B8A: 'nir08',
+  B11: 'swir16',
+  B12: 'swir22'
+};
 
 let passed = 0;
 let failed = 0;
@@ -38,8 +45,8 @@ function log(label, ok, detail) {
 
 function requireEnv() {
   const missing = [];
-  if (!PRITHVI_URL)  missing.push('PRITHVI_ENDPOINT_URL');
-  if (!HF_TOKEN)     missing.push('HF_TOKEN');
+  if (!PRITHVI_URL) missing.push('PRITHVI_ENDPOINT_URL');
+  if (!HF_TOKEN) missing.push('HF_TOKEN');
   if (!SUPABASE_URL) missing.push('SUPABASE_URL');
   if (!SUPABASE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
   if (missing.length) {
@@ -54,22 +61,22 @@ function requireEnv() {
 // ---------------------------------------------------------------------------
 
 async function fetchRomeTile() {
-  console.log('\n── Step 1: Fetch Rome tile from Planetary Computer ──────────────');
+  console.log('\n── Step 1: Fetch Rome tile from Element84 Earth Search ───────────');
 
   const bbox = [11.4, 41.4, 12.99, 42.4];
-  const end  = new Date();
-  const start = new Date(end.getTime() - 30 * 86_400_000);
-  const dateRange = `${start.toISOString().slice(0,10)}/${end.toISOString().slice(0,10)}`;
+  const end = new Date();
+  const start = new Date(end.getTime() - 60 * 86_400_000); // 60 days
+  const dateRange = `${start.toISOString()}/${end.toISOString()}`;
 
-  const res = await fetch(`${PC_STAC_URL}/search`, {
+  const res = await fetch(`${STAC_URL}/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      collections: ['sentinel-2-l2a'],
+      collections: ['sentinel-2-c1-l2a'],
       bbox,
       datetime: dateRange,
       query: { 'eo:cloud_cover': { lt: 20 } },
-      sortby: [{ field: 'eo:cloud_cover', direction: 'asc' }],
+      sortby: [{ field: 'properties.eo:cloud_cover', direction: 'asc' }],
       limit: 1,
     }),
   });
@@ -80,54 +87,72 @@ async function fetchRomeTile() {
 
   if (!tile) throw new Error('No tile found — cannot proceed');
 
-  // Sign band URLs
+  // Do NOT sign band URLs locally! Element84 AWS Earth Search supports anonymous access
   const bands = {};
-  for (const band of REQUIRED_BANDS) {
-    const href = tile.assets?.[band]?.href;
-    if (!href) throw new Error(`Band ${band} missing`);
-    const signRes = await fetch(`${PC_SIGN_URL}?href=${encodeURIComponent(href)}`);
-    const signed = signRes.ok ? (await signRes.json()).href : href;
-    bands[band] = signed;
+  for (const [prithviName, stacName] of Object.entries(REQUIRED_BANDS)) {
+    const href = tile.assets?.[stacName]?.href;
+    if (!href) throw new Error(`Band ${stacName} missing from STAC (expected for ${prithviName})`);
+    bands[prithviName] = href;
   }
-  log('All 6 bands signed', Object.keys(bands).length === 6);
+  log('All 6 bands extracted (Element84)', Object.keys(bands).length === 6);
 
-  return { tile, bands };
+  const epsg = tile.properties?.['proj:epsg'];
+  if (!epsg) throw new Error('No proj:epsg found in STAC item');
+  log('Tile EPSG found', !!epsg, { epsg });
+
+  return { tile, bands, epsg };
 }
 
 // ---------------------------------------------------------------------------
 // Step 2 — Call Prithvi HF Dedicated Endpoint
 // ---------------------------------------------------------------------------
 
-async function callPrithvi(tile, bands) {
+import proj4 from 'proj4';
+
+function getUtmProjString(epsg) {
+  if (epsg >= 32601 && epsg <= 32660) {
+    return `+proj=utm +zone=${epsg - 32600} +datum=WGS84 +units=m +no_defs`;
+  } else if (epsg >= 32701 && epsg <= 32760) {
+    return `+proj=utm +zone=${epsg - 32700} +south +datum=WGS84 +units=m +no_defs`;
+  }
+  throw new Error(`Unsupported EPSG: ${epsg}`);
+}
+
+async function callPrithvi(tile, bands, epsg) {
   console.log('\n── Step 2: Call Prithvi-EO-2.0 HF Dedicated Endpoint ────────────');
   console.log(`   Endpoint: ${PRITHVI_URL}`);
   console.log('   (Cold start may take ~2 min if endpoint was paused...)');
 
+  // Reproject WGS84 bbox to native tile CRS (UTM) for rasterio window
+  const projString = getUtmProjString(epsg);
+  const [minX, minY] = proj4('WGS84', projString, [tile.bbox[0], tile.bbox[1]]);
+  const [maxX, maxY] = proj4('WGS84', projString, [tile.bbox[2], tile.bbox[3]]);
+
+  log('Reprojected bounding box to Native CRS', true, { epsg, minX, minY, maxX, maxY });
+
   const body = {
     bands,
     bbox: {
-      west:  tile.bbox[0],
-      south: tile.bbox[1],
-      east:  tile.bbox[2],
-      north: tile.bbox[3],
+      west: minX,
+      south: minY,
+      east: maxX,
+      north: maxY,
     },
     chip_size: 512,
     confidence_threshold: 0.5,
   };
 
+  const endpointUrl = PRITHVI_URL.replace('/runsync', '/run');
   const t0 = Date.now();
-  const res = await fetch(PRITHVI_URL, {
+  const res = await fetch(endpointUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${HF_TOKEN}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ input: body }),
     signal: AbortSignal.timeout(300_000), // 5 min
   });
-
-  const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  log('Endpoint responded', res.ok, { status: res.status, elapsed_s: elapsed });
 
   if (!res.ok) {
     const err = await res.text();
@@ -135,9 +160,44 @@ async function callPrithvi(tile, bands) {
     throw new Error(`Endpoint HTTP ${res.status}`);
   }
 
-  const result = await res.json();
+  const initial = await res.json();
+  const jobId = initial.id;
+  log('RunPod Job ID created', !!jobId, { id: jobId });
+
+  let raw = null;
+  while (true) {
+    if (Date.now() - t0 > 300_000) {
+      throw new Error('RunPod polling timed out after 5 minutes.');
+    }
+
+    process.stdout.write('.');
+    const statusRes = await fetch(`${endpointUrl.replace('/run', '/status')}/${jobId}`, {
+      headers: { 'Authorization': `Bearer ${HF_TOKEN}` }
+    });
+
+    if (!statusRes.ok) throw new Error(`RunPod status HTTP ${statusRes.status}`);
+
+    const statusData = await statusRes.json();
+    if (statusData.status === 'COMPLETED') {
+      console.log('\n');
+      raw = statusData;
+      break;
+    } else if (statusData.status === 'FAILED') {
+      console.log('\n');
+      throw new Error(`RunPod Status FAILED: ${statusData.error || JSON.stringify(statusData)}`);
+    }
+
+    await new Promise(r => setTimeout(r, 3000));
+  }
+
+  const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+  log('Endpoint responded complete', true, { elapsed_s: elapsed });
+
+  // RunPod wraps handler return in { output: {...}, status: "COMPLETED" }
+  const result = raw.output ?? raw;
+  console.log(`   RunPod output keys: ${Object.keys(result)}`);
   log('dominant_class present', !!result.dominant_class, { dominant_class: result.dominant_class });
-  log('dominant_class is valid', ['flood','no_flood','cloud_nodata'].includes(result.dominant_class));
+  log('dominant_class is valid', ['flood', 'no_flood', 'cloud_nodata'].includes(result.dominant_class));
   log('flood_pixel_pct present', typeof result.flood_pixel_pct === 'number',
     { flood_pixel_pct: result.flood_pixel_pct });
   log('confidence > 0', result.confidence > 0, { confidence: result.confidence });
@@ -189,11 +249,11 @@ async function writeToSpatialMemory(tile, inferenceResult) {
 
   const { data: stored, error } = await supabase.rpc('geiant_store_geometry', {
     p_geometry_id: `perception-${ROME_H3_CELL}-${tile.id}`,
-    p_geom_wkt:    `POINT(${centerLon} ${centerLat})`,
-    p_h3_cells:    [ROME_H3_CELL],
-    p_source:      'phase4_1_e2e_test',
-    p_checksum:    'test',
-    p_metadata:    metadata,
+    p_geojson: JSON.stringify({ type: 'Point', coordinates: [centerLon, centerLat] }),
+    p_h3_cells: [ROME_H3_CELL],
+    p_source: 'phase4_1_e2e_test',
+    p_checksum: 'test',
+    p_metadata: metadata,
   });
 
   log('geometry_store RPC succeeded', !error, error ? { error: error.message } : { stored });
@@ -241,8 +301,8 @@ async function main() {
   console.log(`   Supabase:         ${SUPABASE_URL}`);
 
   try {
-    const { tile, bands } = await fetchRomeTile();
-    const inferenceResult = await callPrithvi(tile, bands);
+    const { tile, bands, epsg } = await fetchRomeTile();
+    const inferenceResult = await callPrithvi(tile, bands, epsg);
     await writeToSpatialMemory(tile, inferenceResult);
   } catch (err) {
     console.error('\n💥 Fatal:', err.message);

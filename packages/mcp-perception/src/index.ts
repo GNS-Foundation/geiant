@@ -33,9 +33,9 @@ const PC_SIGN_URL = 'https://planetarycomputer.microsoft.com/api/sas/v1/sign';
 
 // Env vars (set in Railway for the deployed service)
 const PRITHVI_ENDPOINT_URL = process.env.PRITHVI_ENDPOINT_URL ?? '';
-const HF_TOKEN             = process.env.HF_TOKEN ?? '';
-const SUPABASE_URL         = process.env.SUPABASE_URL ?? '';
-const SUPABASE_KEY         = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+const HF_TOKEN = process.env.HF_TOKEN ?? '';
+const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 
 // Sentinel-2 L2A bands — order must match Prithvi training config
 // Blue, Green, Red, Narrow NIR, SWIR1, SWIR2
@@ -149,7 +149,7 @@ async function searchTile(
       bbox,
       datetime: datetimeRange,
       query: { 'eo:cloud_cover': { lt: maxCloudCover } },
-      sortby: [{ field: 'eo:cloud_cover', direction: 'asc' }],
+      sortby: [{ field: 'properties.eo:cloud_cover', direction: 'asc' }],
       limit: 5,
     }),
   });
@@ -204,9 +204,9 @@ async function fetchTile(params: {
     };
   }
 
-  const endDate   = params.timestamp ? new Date(params.timestamp) : new Date();
+  const endDate = params.timestamp ? new Date(params.timestamp) : new Date();
   const startDate = new Date(endDate.getTime() - days_back * 86_400_000);
-  const datetimeRange = `${startDate.toISOString().slice(0, 10)}/${endDate.toISOString().slice(0, 10)}`;
+  const datetimeRange = `${startDate.toISOString()}/${endDate.toISOString()}`;
 
   let item: StacItem | null;
   try {
@@ -343,22 +343,40 @@ async function classifyTile(params: {
   };
 
   try {
-    // RunPod Serverless Endpoint (replaces HF Dedicated Endpoint)
-    const endpointRes = await fetch(PRITHVI_ENDPOINT_URL, {
+    // Switch from runsync to /run and poll for extended timeout support
+    const endpointUrl = PRITHVI_ENDPOINT_URL.replace('/runsync', '/run');
+
+    // Reproject WGS84 bbox to native tile CRS (UTM)
+    const { default: proj4 } = await import('proj4');
+    // For Element84 Sentinel-2 STAC items, properties['proj:epsg'] will be available
+    const epsg = tile.properties?.['proj:epsg'] ?? 32632; // Default to Rome's UTM zone if somehow missing
+
+    let projString: string;
+    if (epsg >= 32601 && epsg <= 32660) {
+      projString = `+proj=utm +zone=${epsg - 32600} +datum=WGS84 +units=m +no_defs`;
+    } else if (epsg >= 32701 && epsg <= 32760) {
+      projString = `+proj=utm +zone=${epsg - 32700} +south +datum=WGS84 +units=m +no_defs`;
+    } else {
+      projString = `+init=epsg:${epsg}`; // Fallback if supported
+    }
+
+    const [west, south] = proj4('WGS84', projString, [tile.bbox.west, tile.bbox.south]);
+    const [east, north] = proj4('WGS84', projString, [tile.bbox.east, tile.bbox.north]);
+
+    const endpointRes = await fetch(endpointUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${HF_TOKEN}`,  // HF_TOKEN holds RunPod API key
+        'Authorization': `Bearer ${HF_TOKEN}`,
       },
       body: JSON.stringify({
         input: {
           bands: tile.bands,
-          bbox: tile.bbox,
+          bbox: { west, south, east, north },
           chip_size: 512,
           confidence_threshold: 0.5,
-        },
+        }
       }),
-      // 5 min timeout — model cold start can take ~2 min
       signal: AbortSignal.timeout(300_000),
     });
 
@@ -367,10 +385,43 @@ async function classifyTile(params: {
       throw new Error(`RunPod endpoint HTTP ${endpointRes.status}: ${errText}`);
     }
 
-    const runpodResult = await endpointRes.json();
-    if (runpodResult.status === 'FAILED') {
-      throw new Error(`RunPod job failed: ${JSON.stringify(runpodResult)}`);
+    const initialResult = await endpointRes.json();
+    const jobId = initialResult.id;
+
+    if (!jobId) {
+      throw new Error(`RunPod did not return a jobId: ${JSON.stringify(initialResult)}`);
     }
+
+    // Polling loop
+    let runpodResult: any = null;
+    const startTime = Date.now();
+
+    while (true) {
+      if (Date.now() - startTime > 300_000) {
+        throw new Error('RunPod polling timed out after 5 minutes.');
+      }
+
+      const statusRes = await fetch(`${endpointUrl.replace('/run', '/status')}/${jobId}`, {
+        headers: { 'Authorization': `Bearer ${HF_TOKEN}` }
+      });
+
+      if (!statusRes.ok) {
+        throw new Error(`RunPod status HTTP ${statusRes.status}`);
+      }
+
+      const statusData = await statusRes.json();
+
+      if (statusData.status === 'COMPLETED') {
+        runpodResult = statusData;
+        break;
+      } else if (statusData.status === 'FAILED') {
+        throw new Error(`RunPod job failed: ${statusData.error || JSON.stringify(statusData)}`);
+      }
+
+      // Wait 3 seconds before polling again
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+
     inferenceResult = runpodResult.output ?? runpodResult;
 
   } catch (err) {
@@ -444,12 +495,12 @@ async function classifyTile(params: {
         const { data: stored, error } = await supabase.rpc(
           'geiant_store_geometry',
           {
-            p_geometry_id:  geometryId,
-            p_geom_wkt:     `POINT(${centerLon} ${centerLat})`,
-            p_h3_cells:     [h3_cell],
-            p_source:       'mcp-perception/perception_classify',
-            p_checksum:     checksum,
-            p_metadata:     metadata,
+            p_geometry_id: geometryId,
+            p_geojson: JSON.stringify({ type: 'Point', coordinates: [centerLon, centerLat] }),
+            p_h3_cells: [h3_cell],
+            p_source: 'mcp-perception/perception_classify',
+            p_checksum: checksum,
+            p_metadata: metadata,
           }
         );
 
