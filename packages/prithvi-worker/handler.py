@@ -36,11 +36,10 @@ def load_clay():
     if CLAY_MODEL is not None:
         return CLAY_MODEL
     import torch
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
     device = "cpu"
     from claymodel.module import ClayMAEModule
     print(f"Loading Clay v1.5 on {device}...")
-    ckpt_path = "/app/hf_cache/v1.5/clay-v1.5.ckpt"
+    ckpt_path = "/app/clay_repo/hf_cache/v1.5/clay-v1.5.ckpt"
     if not os.path.exists(ckpt_path):
         from huggingface_hub import hf_hub_download
         ckpt_path = hf_hub_download(
@@ -48,7 +47,7 @@ def load_clay():
             filename="v1.5/clay-v1.5.ckpt",
             cache_dir="/app/hf_cache"
         )
-    CLAY_MODEL = ClayMAEModule.load_from_checkpoint(ckpt_path, map_location="cpu", strict=False)
+    CLAY_MODEL = ClayMAEModule.load_from_checkpoint(ckpt_path, map_location="cuda" if __import__("torch").cuda.is_available() else "cpu", strict=False)
     CLAY_MODEL.eval()
     print("Clay v1.5 loaded on CPU")
     return CLAY_MODEL
@@ -149,6 +148,7 @@ def run_embed(band_stack, metadata_in):
 
     lat  = float(metadata_in.get("lat", 0.0))
     lon  = float(metadata_in.get("lon", 0.0))
+    gsd  = float(metadata_in.get("gsd", 10.0))
     timestamp = metadata_in.get("timestamp", "2026-01-01T00:00:00Z")
 
     # Load Clay sensor metadata for normalization + wavelengths
@@ -161,11 +161,11 @@ def run_embed(band_stack, metadata_in):
     smeta = meta[sensor]["bands"]
     means = np.array([smeta["mean"][b] for b in our_bands], dtype=np.float32)
     stds  = np.array([smeta["std"][b]  for b in our_bands], dtype=np.float32)
-    waves = np.array([smeta["wavelength"][b] * 1000 for b in our_bands], dtype=np.float32)
+    waves = np.array([smeta["wavelength"][b] for b in our_bands], dtype=np.float32)  # µm — Clay expects µm not nm
 
     # Normalize using Clay stats
     norm = (band_stack - means[:,None,None]) / stds[:,None,None]
-    chips = torch.from_numpy(norm).unsqueeze(0).float().to(device)  # (1,6,H,W)
+    chips = torch.from_numpy(norm).unsqueeze(0).float().to(device)  # (1,6,H,W) batch,bands,H,W
 
     from datetime import datetime
     try:
@@ -179,8 +179,23 @@ def run_embed(band_stack, metadata_in):
     timestamps  = torch.tensor([[week, hour, lat, lon]], dtype=torch.float32).to(device)
     wavelengths = torch.tensor([waves.tolist()], dtype=torch.float32).to(device)
 
+    # ClayMAEModule wraps model — actual encoder is at model.model.encoder
+    # Input must be a batch dict with pixels, time, latlon, gsd, waves keys
+    batch = {
+        "pixels":    chips,                                                    # (1, 6, H, W)
+        "time":      torch.tensor([[week, hour]], dtype=torch.float32).to(device),
+        "latlon":    torch.tensor([[lat, lon]], dtype=torch.float32).to(device),
+        "gsd":       torch.tensor([[gsd]], dtype=torch.float32).to(device),
+        "waves":     wavelengths,                                              # (1, 6)
+    }
     with torch.no_grad():
-        embedding = model.encoder(chips, timestamps, wavelengths)
+        try:
+            unmsk_patch, unmsk_idx, msk_idx, msk_matrix = model.model.encoder(batch)
+        except Exception as enc_err:
+            import traceback
+            raise RuntimeError(f"Encoder error. chips={chips.shape}, waves={wavelengths.shape}, batch_keys={list(batch.keys())}. Error: {traceback.format_exc()}")
+    # unmsk_patch shape: (1, num_patches, embed_dim) — mean pool for cell embedding
+    embedding = unmsk_patch.mean(dim=1)                                        # (1, 1024)
     emb = embedding.squeeze(0).cpu().numpy()
     return {
         "embedding":      emb.tolist(),
