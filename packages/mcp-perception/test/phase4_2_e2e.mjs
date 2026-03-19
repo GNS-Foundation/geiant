@@ -10,7 +10,7 @@ const RUNPOD_API_KEY = process.env.HF_TOKEN;
 const SUPABASE_URL   = process.env.SUPABASE_URL;
 const SUPABASE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const ROME_H3      = '851f9ebfffffff';
+const ROME_H3      = '851e8053fffffff';
 const ROME_LAT     = 41.9028;
 const ROME_LON     = 12.4964;
 const EXPECTED_DIM = 1024;

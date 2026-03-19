@@ -531,6 +531,152 @@ async function classifyTile(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Tool implementation: perception_weather (Open-Meteo ERA5 reanalysis)
+// ---------------------------------------------------------------------------
+
+interface WeatherResult {
+  h3_cell: string;
+  lat: number;
+  lon: number;
+  timestamp: string;
+  wind_speed_ms: number;
+  wind_direction_deg: number;
+  precipitation_mm: number;
+  temperature_c: number;
+  weather_code: number;
+  data_source: string;
+  geometry_state_id: string | null;
+  spatial_memory_written: boolean;
+  status: 'ok' | 'error';
+  message?: string;
+}
+
+async function fetchWeather(params: {
+  h3_cell: string;
+  timestamp?: string;
+  write_to_spatial_memory?: boolean;
+}): Promise<WeatherResult> {
+  const { h3_cell, write_to_spatial_memory = true } = params;
+
+  // Derive centroid from H3 cell
+  const { cellToLatLng } = await import('h3-js');
+  const [lat, lon] = cellToLatLng(h3_cell);
+
+  // Parse timestamp — Open-Meteo needs YYYY-MM-DD
+  const dt = params.timestamp ? new Date(params.timestamp) : new Date();
+  const dateStr = dt.toISOString().slice(0, 10);
+  const hour = dt.getUTCHours();
+
+  // Open-Meteo historical API (ERA5 reanalysis, free, no auth)
+  const url = new URL('https://archive-api.open-meteo.com/v1/archive');
+  url.searchParams.set('latitude',  lat.toFixed(6));
+  url.searchParams.set('longitude', lon.toFixed(6));
+  url.searchParams.set('start_date', dateStr);
+  url.searchParams.set('end_date',   dateStr);
+  url.searchParams.set('hourly', [
+    'temperature_2m',
+    'precipitation',
+    'windspeed_10m',
+    'winddirection_10m',
+    'weathercode',
+  ].join(','));
+  url.searchParams.set('timezone', 'UTC');
+  url.searchParams.set('wind_speed_unit', 'ms');
+
+  let weatherData: {
+    temperature_2m: number;
+    precipitation: number;
+    windspeed_10m: number;
+    winddirection_10m: number;
+    weathercode: number;
+  };
+
+  try {
+    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`Open-Meteo HTTP ${res.status}`);
+    const data = await res.json() as {
+      hourly: {
+        time: string[];
+        temperature_2m: number[];
+        precipitation: number[];
+        windspeed_10m: number[];
+        winddirection_10m: number[];
+        weathercode: number[];
+      };
+    };
+    // Pick the hour closest to the requested timestamp
+    const idx = Math.min(hour, data.hourly.time.length - 1);
+    weatherData = {
+      temperature_2m:    data.hourly.temperature_2m[idx]    ?? 0,
+      precipitation:     data.hourly.precipitation[idx]     ?? 0,
+      windspeed_10m:     data.hourly.windspeed_10m[idx]     ?? 0,
+      winddirection_10m: data.hourly.winddirection_10m[idx] ?? 0,
+      weathercode:       data.hourly.weathercode[idx]       ?? 0,
+    };
+  } catch (err) {
+    return {
+      h3_cell, lat, lon,
+      timestamp: dt.toISOString(),
+      wind_speed_ms: 0, wind_direction_deg: 0,
+      precipitation_mm: 0, temperature_c: 0, weather_code: 0,
+      data_source: 'open-meteo-era5',
+      geometry_state_id: null, spatial_memory_written: false,
+      status: 'error', message: `Open-Meteo fetch failed: ${err}`,
+    };
+  }
+
+  const result: WeatherResult = {
+    h3_cell, lat, lon,
+    timestamp: dt.toISOString(),
+    wind_speed_ms:     Math.round(weatherData.windspeed_10m * 100) / 100,
+    wind_direction_deg: weatherData.winddirection_10m,
+    precipitation_mm:  weatherData.precipitation,
+    temperature_c:     weatherData.temperature_2m,
+    weather_code:      weatherData.weathercode,
+    data_source:       'open-meteo-era5',
+    geometry_state_id: null,
+    spatial_memory_written: false,
+    status: 'ok',
+  };
+
+  // Write to Spatial Memory
+  if (write_to_spatial_memory) {
+    const supabase = getSupabase();
+    if (supabase) {
+      try {
+        const geometryId = `weather-${h3_cell}-${dateStr}`;
+        const metadata = {
+          weather_context: {
+            ...result,
+            model_id: 'open-meteo-era5',
+            model_version: '1.0.0',
+          },
+        };
+        const checksum = createHash('sha256')
+          .update(JSON.stringify(metadata))
+          .digest('hex');
+
+        const { data: stored, error } = await supabase.rpc('geiant_store_geometry', {
+          p_geometry_id: geometryId,
+          p_geojson: JSON.stringify({ type: 'Point', coordinates: [lon, lat] }),
+          p_h3_cells: [h3_cell],
+          p_source: 'mcp-perception/perception_weather',
+          p_checksum: checksum,
+          p_metadata: metadata,
+        });
+
+        if (!error) {
+          result.geometry_state_id = stored ?? geometryId;
+          result.spatial_memory_written = true;
+        }
+      } catch (_) { /* non-fatal */ }
+    }
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // MCP Server
 // ---------------------------------------------------------------------------
 
@@ -618,24 +764,27 @@ function buildServer(): McpServer {
     }),
   );
 
-  // ── perception_weather  (Sub-phase 4.3 — stub) ──────────────────────────
+  // ── perception_weather  (Sub-phase 4.3 — Open-Meteo) ───────────────────
   srv.tool(
     'perception_weather',
-    '[Sub-phase 4.3 — NOT YET IMPLEMENTED] Will query Prithvi-WxC for ' +
-    'atmospheric conditions (wind, precipitation, temperature anomaly).',
+    'Query atmospheric conditions for an H3 cell at a given timestamp. ' +
+    'Returns wind speed, precipitation, temperature and weather code from ' +
+    'Open-Meteo historical reanalysis (ERA5). Writes weather context to ' +
+    'Spatial Memory alongside Prithvi classification and Clay embeddings, ' +
+    'completing the full GEIANT perception chain for the target H3 cell.',
     {
-      h3_cell: z.string(),
-      timestamp: z.string().optional(),
+      h3_cell: z.string().describe('H3 cell ID at any resolution.'),
+      timestamp: z.string().optional().describe(
+        'ISO 8601 datetime for weather lookup. Defaults to now.'
+      ),
+      write_to_spatial_memory: z.boolean().optional().describe(
+        'Write weather context to geiant_geometry_state. Default: true.'
+      ),
     },
-    async () => ({
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          status: 'not_implemented',
-          message: 'perception_weather will be available in Sub-phase 4.3 (Prithvi-WxC).',
-        }),
-      }],
-    }),
+    async ({ h3_cell, timestamp, write_to_spatial_memory = true }) => {
+      const result = await fetchWeather({ h3_cell, timestamp, write_to_spatial_memory });
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    },
   );
 
   return srv;
