@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "agent_pk": "c14094ea7efb61228582d2bb806e6c16e7a85568fc2947cbe9edfb19b81fbc04",
+  "principal_pk": "262507c61565a59e50f9bfe4464f0043254223450a68406272212d1a61492bfa",
+  "h3_cells": [
+    "851e8053fffffff"
+  ],
+  "facets": [
+    "energy@italy-geiant"
+  ],
+  "not_before": "2026-03-20T11:54:36.832Z",
+  "not_after": "2027-03-20T11:54:36.832Z",
+  "max_depth": 0,
+  "constraints": {
+    "allowed_tools": [
+      "perception_fetch_tile",
+      "perception_classify",
+      "perception_embed",
+      "perception_weather",
+      "spatial_query",
+      "trajectory_audit",
+      "compliance_report"
+    ],
+    "max_ops_per_hour": 1000
+  },
+  "principal_signature": "9387941343081971ee0ce60031de7aa9b1014023f8f581cae8edd2120bbfb0590c2d67d5655ad21fa8324f48648d4d735a26f28a8753e7d39e5f7679a7714606"
+}

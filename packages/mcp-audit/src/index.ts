@@ -1,0 +1,8 @@
+// ===========================================
+// GEIANT mcp-audit — Package Entry Point
+// Location: packages/mcp-audit/src/index.ts
+// ===========================================
+
+export * from './types';
+export * from './chain';
+export { AuditEngine, AuditConfig, createAuditEngine } from './middleware';

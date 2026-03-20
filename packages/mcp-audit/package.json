@@ -1,0 +1,46 @@
+{
+  "name": "@geiant/mcp-audit",
+  "version": "0.1.0",
+  "description": "GEIANT Phase 5 — Agent audit trail with virtual breadcrumb chain, delegation certificates, and EU AI Act compliance",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./chain": "./dist/chain.js",
+    "./middleware": "./dist/middleware.js",
+    "./types": "./dist/types.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:5.1.0": "vitest run test/phase5_1_0.test.ts",
+    "test:5.1.1": "vitest run test/phase5_1_1_middleware.test.ts",
+    "test:all": "vitest run --reporter=verbose",
+    "setup-agent": "tsx scripts/setup-agent.ts",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.0"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GNS-Foundation/geiant.git",
+    "directory": "packages/mcp-audit"
+  },
+  "author": "GNS Foundation",
+  "license": "Apache-2.0"
+}

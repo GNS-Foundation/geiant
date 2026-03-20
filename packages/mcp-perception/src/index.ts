@@ -5,16 +5,25 @@
  * Sub-phase 4.0 — Tile Pipeline       ✓ COMPLETE
  *   perception_fetch_tile
  *
- * Sub-phase 4.1 — Classification      ✓ IMPLEMENTED (activate when HF endpoint live)
+ * Sub-phase 4.1 — Classification      ✓ COMPLETE
  *   perception_classify → Prithvi-EO-2.0-300M-TL-Sen1Floods11
- *   Env vars required:
- *     PRITHVI_ENDPOINT_URL  — HF Dedicated Endpoint URL
- *     HF_TOKEN              — HuggingFace token (Inference scope)
- *     SUPABASE_URL          — for writing results to Spatial Memory
- *     SUPABASE_SERVICE_ROLE_KEY
  *
- * Sub-phase 4.2 — perception_embed    (Clay v1.5, TODO)
- * Sub-phase 4.3 — perception_weather  (Prithvi-WxC, TODO)
+ * Sub-phase 4.2 — perception_embed    ⏳ Clay v1.5
+ * Sub-phase 4.3 — perception_weather  ✓ COMPLETE (Open-Meteo ERA5)
+ *
+ * Phase 5.1.2 — Audit Middleware      ✓ WIRED
+ *   Every tool call drops a signed virtual breadcrumb to Supabase
+ *   via @geiant/mcp-audit AuditEngine. Breadcrumbs chain back to
+ *   the human principal via Ed25519 delegation certificate.
+ *
+ * Env vars required:
+ *   PRITHVI_ENDPOINT_URL, HF_TOKEN — RunPod inference
+ *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY — Spatial Memory
+ *   GEIANT_SUPABASE_URL, GEIANT_SUPABASE_SERVICE_KEY — Audit trail (can be same Supabase)
+ *   GEIANT_AGENT_SK — Agent Ed25519 secret key (128 hex)
+ *   GEIANT_DELEGATION_CERT — Delegation certificate JSON
+ *   GEIANT_DEFAULT_FACET — e.g. "energy@italy-geiant"
+ *   GEIANT_DEFAULT_H3_CELL — e.g. "851e8053fffffff"
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -23,6 +32,12 @@ import { z } from 'zod';
 import { cellToBoundary, getResolution, latLngToCell } from 'h3-js';
 import { createClient } from '@supabase/supabase-js';
 import { createHash, randomUUID } from 'crypto';
+
+// ---------------------------------------------------------------------------
+// Phase 5.1.2 — Audit Engine Import
+// ---------------------------------------------------------------------------
+
+import { AuditEngine } from '@geiant/mcp-audit/middleware';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -61,6 +76,7 @@ interface StacItem {
     datetime: string;
     'eo:cloud_cover': number;
     platform: string;
+    [key: string]: any;
   };
   assets: Record<string, { href: string; type?: string }>;
   bbox: [number, number, number, number];
@@ -82,7 +98,6 @@ interface TileResult {
 }
 
 interface ClassifyResult {
-  // Perception chain — stored atomically in Spatial Memory
   perception_chain: {
     h3_cell: string;
     tile_id: string;
@@ -92,7 +107,6 @@ interface ClassifyResult {
     confidence: number;
     agent_note: string;
   };
-  // Classification output
   dominant_class: 'no_flood' | 'flood' | 'cloud_nodata';
   flood_pixel_pct: number;
   confidence: number;
@@ -102,16 +116,31 @@ interface ClassifyResult {
     flood: number;
     cloud_nodata: number;
   };
-  // Spatial Memory write result
   geometry_state_id: string | null;
   spatial_memory_written: boolean;
   status: 'ok' | 'endpoint_unavailable' | 'error';
   message?: string;
 }
 
+interface WeatherResult {
+  h3_cell: string;
+  lat: number;
+  lon: number;
+  timestamp: string;
+  wind_speed_ms: number;
+  wind_direction_deg: number;
+  precipitation_mm: number;
+  temperature_c: number;
+  weather_code: number;
+  data_source: string;
+  geometry_state_id: string | null;
+  spatial_memory_written: boolean;
+  status: 'ok' | 'error';
+  message?: string;
+}
+
 // ---------------------------------------------------------------------------
 // In-memory tile cache: tile_id → TileResult
-// Allows perception_classify to reference a tile fetched earlier in the session
 // ---------------------------------------------------------------------------
 
 const tileCache = new Map<string, TileResult>();
@@ -262,7 +291,6 @@ async function fetchTile(params: {
     status: 'ok',
   };
 
-  // Cache for perception_classify to reference
   tileCache.set(item.id, result);
   return result;
 }
@@ -279,50 +307,38 @@ async function classifyTile(params: {
 }): Promise<ClassifyResult> {
   const { tile_id, task, write_to_spatial_memory = true } = params;
 
-  // 1. Check endpoint is configured
   if (!PRITHVI_ENDPOINT_URL) {
     return {
       perception_chain: {
-        h3_cell: params.h3_cell ?? '',
-        tile_id,
+        h3_cell: params.h3_cell ?? '', tile_id,
         acquisition_datetime: '',
         model_id: 'Prithvi-EO-2.0-300M-TL-Sen1Floods11',
-        model_version: '1.0.0',
-        confidence: 0,
+        model_version: '1.0.0', confidence: 0,
         agent_note: 'endpoint not configured',
       },
-      dominant_class: 'no_flood',
-      flood_pixel_pct: 0,
-      confidence: 0,
+      dominant_class: 'no_flood', flood_pixel_pct: 0, confidence: 0,
       mask_shape: [0, 0],
       class_counts: { no_flood: 0, flood: 0, cloud_nodata: 0 },
-      geometry_state_id: null,
-      spatial_memory_written: false,
+      geometry_state_id: null, spatial_memory_written: false,
       status: 'endpoint_unavailable',
-      message: 'PRITHVI_ENDPOINT_URL env var not set. Deploy HF Dedicated Endpoint first.',
+      message: 'PRITHVI_ENDPOINT_URL env var not set.',
     };
   }
 
-  // 2. Retrieve tile from cache
   const tile = tileCache.get(tile_id);
   if (!tile) {
     return {
       perception_chain: {
-        h3_cell: params.h3_cell ?? '',
-        tile_id,
+        h3_cell: params.h3_cell ?? '', tile_id,
         acquisition_datetime: '',
         model_id: 'Prithvi-EO-2.0-300M-TL-Sen1Floods11',
-        model_version: '1.0.0',
-        confidence: 0,
+        model_version: '1.0.0', confidence: 0,
         agent_note: 'tile not in cache',
       },
-      dominant_class: 'no_flood',
-      flood_pixel_pct: 0,
-      confidence: 0,
+      dominant_class: 'no_flood', flood_pixel_pct: 0, confidence: 0,
       mask_shape: [0, 0],
       class_counts: { no_flood: 0, flood: 0, cloud_nodata: 0 },
-      geometry_state_id: null,
-      spatial_memory_written: false,
+      geometry_state_id: null, spatial_memory_written: false,
       status: 'error',
       message: `tile_id ${tile_id} not found in session cache. Call perception_fetch_tile first.`,
     };
@@ -330,8 +346,6 @@ async function classifyTile(params: {
 
   const h3_cell = params.h3_cell ?? tile.h3_cell;
 
-  // 3. Call HuggingFace Dedicated Endpoint
-  // handler.py receives the band URLs and returns the classification result
   let inferenceResult: {
     dominant_class: 'no_flood' | 'flood' | 'cloud_nodata';
     flood_pixel_pct: number;
@@ -343,13 +357,10 @@ async function classifyTile(params: {
   };
 
   try {
-    // Switch from runsync to /run and poll for extended timeout support
     const endpointUrl = PRITHVI_ENDPOINT_URL.replace('/runsync', '/run');
 
-    // Reproject WGS84 bbox to native tile CRS (UTM)
     const { default: proj4 } = await import('proj4');
-    // For Element84 Sentinel-2 STAC items, properties['proj:epsg'] will be available
-    const epsg = tile.properties?.['proj:epsg'] ?? 32632; // Default to Rome's UTM zone if somehow missing
+    const epsg = (tile as any).properties?.['proj:epsg'] ?? 32632;
 
     let projString: string;
     if (epsg >= 32601 && epsg <= 32660) {
@@ -357,7 +368,7 @@ async function classifyTile(params: {
     } else if (epsg >= 32701 && epsg <= 32760) {
       projString = `+proj=utm +zone=${epsg - 32700} +south +datum=WGS84 +units=m +no_defs`;
     } else {
-      projString = `+init=epsg:${epsg}`; // Fallback if supported
+      projString = `+init=epsg:${epsg}`;
     }
 
     const [west, south] = proj4('WGS84', projString, [tile.bbox.west, tile.bbox.south]);
@@ -392,7 +403,6 @@ async function classifyTile(params: {
       throw new Error(`RunPod did not return a jobId: ${JSON.stringify(initialResult)}`);
     }
 
-    // Polling loop
     let runpodResult: any = null;
     const startTime = Date.now();
 
@@ -418,7 +428,6 @@ async function classifyTile(params: {
         throw new Error(`RunPod job failed: ${statusData.error || JSON.stringify(statusData)}`);
       }
 
-      // Wait 3 seconds before polling again
       await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
@@ -427,30 +436,23 @@ async function classifyTile(params: {
   } catch (err) {
     return {
       perception_chain: {
-        h3_cell,
-        tile_id,
+        h3_cell, tile_id,
         acquisition_datetime: tile.acquisition_datetime,
         model_id: 'Prithvi-EO-2.0-300M-TL-Sen1Floods11',
-        model_version: '1.0.0',
-        confidence: 0,
+        model_version: '1.0.0', confidence: 0,
         agent_note: 'inference failed',
       },
-      dominant_class: 'no_flood',
-      flood_pixel_pct: 0,
-      confidence: 0,
+      dominant_class: 'no_flood', flood_pixel_pct: 0, confidence: 0,
       mask_shape: [0, 0],
       class_counts: { no_flood: 0, flood: 0, cloud_nodata: 0 },
-      geometry_state_id: null,
-      spatial_memory_written: false,
+      geometry_state_id: null, spatial_memory_written: false,
       status: 'error',
       message: `Prithvi inference failed: ${err}`,
     };
   }
 
-  // 4. Build the perception chain — the GEIANT audit trail
   const perceptionChain = {
-    h3_cell,
-    tile_id,
+    h3_cell, tile_id,
     acquisition_datetime: tile.acquisition_datetime,
     model_id: inferenceResult.model_id ?? 'Prithvi-EO-2.0-300M-TL-Sen1Floods11',
     model_version: inferenceResult.model_version ?? '1.0.0',
@@ -458,7 +460,6 @@ async function classifyTile(params: {
     agent_note: `flood classification via Sen1Floods11 fine-tune; task=${task}`,
   };
 
-  // 5. Write to Spatial Memory (geiant_geometry_state)
   let geometryStateId: string | null = null;
   let spatialMemoryWritten = false;
 
@@ -466,16 +467,11 @@ async function classifyTile(params: {
     const supabase = getSupabase();
     if (supabase) {
       try {
-        // Build a point geometry at the H3 cell centroid
-        // (full polygon geometry write would require the H3 boundary)
         const bbox = tile.bbox;
         const centerLon = (bbox.west + bbox.east) / 2;
         const centerLat = (bbox.south + bbox.north) / 2;
 
         const geometryId = `perception-${h3_cell}-${tile_id}`;
-        const now = new Date().toISOString();
-
-        // Build metadata — this IS the perception chain
         const metadata = {
           perception_chain: perceptionChain,
           classification: {
@@ -534,23 +530,6 @@ async function classifyTile(params: {
 // Tool implementation: perception_weather (Open-Meteo ERA5 reanalysis)
 // ---------------------------------------------------------------------------
 
-interface WeatherResult {
-  h3_cell: string;
-  lat: number;
-  lon: number;
-  timestamp: string;
-  wind_speed_ms: number;
-  wind_direction_deg: number;
-  precipitation_mm: number;
-  temperature_c: number;
-  weather_code: number;
-  data_source: string;
-  geometry_state_id: string | null;
-  spatial_memory_written: boolean;
-  status: 'ok' | 'error';
-  message?: string;
-}
-
 async function fetchWeather(params: {
   h3_cell: string;
   timestamp?: string;
@@ -558,27 +537,21 @@ async function fetchWeather(params: {
 }): Promise<WeatherResult> {
   const { h3_cell, write_to_spatial_memory = true } = params;
 
-  // Derive centroid from H3 cell
   const { cellToLatLng } = await import('h3-js');
   const [lat, lon] = cellToLatLng(h3_cell);
 
-  // Parse timestamp — Open-Meteo needs YYYY-MM-DD
   const dt = params.timestamp ? new Date(params.timestamp) : new Date();
   const dateStr = dt.toISOString().slice(0, 10);
   const hour = dt.getUTCHours();
 
-  // Open-Meteo historical API (ERA5 reanalysis, free, no auth)
   const url = new URL('https://archive-api.open-meteo.com/v1/archive');
   url.searchParams.set('latitude',  lat.toFixed(6));
   url.searchParams.set('longitude', lon.toFixed(6));
   url.searchParams.set('start_date', dateStr);
   url.searchParams.set('end_date',   dateStr);
   url.searchParams.set('hourly', [
-    'temperature_2m',
-    'precipitation',
-    'windspeed_10m',
-    'winddirection_10m',
-    'weathercode',
+    'temperature_2m', 'precipitation', 'windspeed_10m',
+    'winddirection_10m', 'weathercode',
   ].join(','));
   url.searchParams.set('timezone', 'UTC');
   url.searchParams.set('wind_speed_unit', 'ms');
@@ -604,7 +577,6 @@ async function fetchWeather(params: {
         weathercode: number[];
       };
     };
-    // Pick the hour closest to the requested timestamp
     const idx = Math.min(hour, data.hourly.time.length - 1);
     weatherData = {
       temperature_2m:    data.hourly.temperature_2m[idx]    ?? 0,
@@ -615,8 +587,7 @@ async function fetchWeather(params: {
     };
   } catch (err) {
     return {
-      h3_cell, lat, lon,
-      timestamp: dt.toISOString(),
+      h3_cell, lat, lon, timestamp: dt.toISOString(),
       wind_speed_ms: 0, wind_direction_deg: 0,
       precipitation_mm: 0, temperature_c: 0, weather_code: 0,
       data_source: 'open-meteo-era5',
@@ -639,7 +610,6 @@ async function fetchWeather(params: {
     status: 'ok',
   };
 
-  // Write to Spatial Memory
   if (write_to_spatial_memory) {
     const supabase = getSupabase();
     if (supabase) {
@@ -677,14 +647,78 @@ async function fetchWeather(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 5.1.2 — Audit Engine Setup
+// ---------------------------------------------------------------------------
+
+let auditEngine: AuditEngine | null = null;
+
+function getAuditEngine(): AuditEngine | null {
+  if (auditEngine) return auditEngine;
+
+  // All four env vars must be present to enable auditing
+  const sk   = process.env.GEIANT_AGENT_SK;
+  const cert = process.env.GEIANT_DELEGATION_CERT;
+  const url  = process.env.GEIANT_SUPABASE_URL ?? process.env.SUPABASE_URL;
+  const key  = process.env.GEIANT_SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!sk || !cert || !url || !key) {
+    return null;  // Audit disabled — tools still work, just no breadcrumbs
+  }
+
+  try {
+    auditEngine = new AuditEngine({
+      supabaseUrl: url,
+      supabaseServiceKey: key,
+      agentSecretKeyHex: sk,
+      delegationCertificate: JSON.parse(cert),
+      defaultFacet: process.env.GEIANT_DEFAULT_FACET ?? 'energy@italy-geiant',
+      defaultLocationCell: process.env.GEIANT_DEFAULT_H3_CELL ?? '851e8053fffffff',
+      defaultLocationResolution: parseInt(process.env.GEIANT_DEFAULT_H3_RES ?? '5', 10),
+    });
+    return auditEngine;
+  } catch (err) {
+    console.error('⚠️  Audit engine init failed (tools will run without audit):', err);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // MCP Server
 // ---------------------------------------------------------------------------
 
 function buildServer(): McpServer {
   const srv = new McpServer({
     name: 'geiant-perception',
-    version: '0.2.0',
+    version: '0.3.0',  // Bumped for Phase 5.1.2 audit integration
   });
+
+  // Try to get audit engine (may be null if env vars not set)
+  const audit = getAuditEngine();
+
+  // ── Wrap handlers with audit middleware (if available) ───────────────────
+  // If audit is null, we use the raw handlers — no breadcrumbs, but tools work.
+  // This means the service degrades gracefully: no audit config = no audit trail,
+  // but all perception tools remain fully functional.
+
+  const auditedFetchTile = audit
+    ? audit.wrapTool('perception_fetch_tile', fetchTile, {
+        locationCell: (input: any) => input.h3_cell ?? '851e8053fffffff',
+      })
+    : fetchTile;
+
+  const auditedClassifyTile = audit
+    ? audit.wrapTool('perception_classify', classifyTile, {
+        locationCell: (input: any) => input.h3_cell ?? tileCache.get(input.tile_id)?.h3_cell ?? '851e8053fffffff',
+        modelId: 'prithvi-eo-2.0',
+        runpodEndpoint: 'o7emejiwlumgj6',
+      })
+    : classifyTile;
+
+  const auditedFetchWeather = audit
+    ? audit.wrapTool('perception_weather', fetchWeather, {
+        locationCell: (input: any) => input.h3_cell ?? '851e8053fffffff',
+      })
+    : fetchWeather;
 
   // ── perception_fetch_tile ────────────────────────────────────────────────
   srv.tool(
@@ -707,7 +741,7 @@ function buildServer(): McpServer {
       ),
     },
     async (params) => {
-      const result = await fetchTile(params);
+      const result = await auditedFetchTile(params);
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
     },
   );
@@ -717,39 +751,33 @@ function buildServer(): McpServer {
     'perception_classify',
     'Run Prithvi-EO-2.0-300M-TL-Sen1Floods11 flood classification on a Sentinel-2 ' +
     'tile previously fetched by perception_fetch_tile. Sends the 6-band chip to a ' +
-    'HuggingFace Dedicated Endpoint and returns: dominant_class (flood/no_flood/' +
-    'cloud_nodata), flood_pixel_pct, confidence, class_counts, and the full ' +
-    'perception_chain (h3_cell + tile_id + acquisition_datetime + model_id + ' +
-    'model_version + confidence). The perception chain is written atomically to ' +
-    'Spatial Memory (geiant_geometry_state) so every classification is permanently ' +
-    'auditable via geometry_at. Requires PRITHVI_ENDPOINT_URL and HF_TOKEN env vars.',
+    'RunPod endpoint and returns: dominant_class, flood_pixel_pct, confidence, ' +
+    'class_counts, and the full perception_chain. The perception chain is written ' +
+    'to Spatial Memory and a signed audit breadcrumb is dropped to the agent trail.',
     {
       tile_id: z.string().describe(
         'tile_id from perception_fetch_tile result (must be in session cache).'
       ),
       task: z.enum(['flood', 'landcover', 'burnscar', 'anomaly']).describe(
-        'Classification task. Currently only "flood" is supported by the ' +
-        'Sen1Floods11 fine-tune. Other tasks will route to future model variants.'
+        'Classification task. Currently only "flood" is supported.'
       ),
       h3_cell: z.string().optional().describe(
-        'Override H3 cell for the Spatial Memory write. Defaults to the cell ' +
-        'from the original perception_fetch_tile call.'
+        'Override H3 cell. Defaults to the cell from the original fetch.'
       ),
       write_to_spatial_memory: z.boolean().optional().describe(
         'Write perception chain to geiant_geometry_state. Default: true.'
       ),
     },
     async (params) => {
-      const result = await classifyTile(params);
+      const result = await auditedClassifyTile(params);
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
     },
   );
 
-  // ── perception_embed  (Sub-phase 4.2 — stub) ────────────────────────────
+  // ── perception_embed  (Sub-phase 4.2 — stub, no audit yet) ──────────────
   srv.tool(
     'perception_embed',
-    '[Sub-phase 4.2 — NOT YET IMPLEMENTED] Will generate 768-dimensional Clay ' +
-    'Foundation Model embeddings for a tile and store them in Spatial Memory.',
+    '[Sub-phase 4.2 — NOT YET IMPLEMENTED] Will generate Clay v1.5 embeddings.',
     {
       tile_id: z.string().describe('tile_id from perception_fetch_tile result'),
     },
@@ -758,20 +786,18 @@ function buildServer(): McpServer {
         type: 'text',
         text: JSON.stringify({
           status: 'not_implemented',
-          message: 'perception_embed will be available in Sub-phase 4.2 (Clay v1.5 HuggingFace endpoint).',
+          message: 'perception_embed will be available in Sub-phase 4.2.',
         }),
       }],
     }),
   );
 
-  // ── perception_weather  (Sub-phase 4.3 — Open-Meteo) ───────────────────
+  // ── perception_weather ──────────────────────────────────────────────────
   srv.tool(
     'perception_weather',
-    'Query atmospheric conditions for an H3 cell at a given timestamp. ' +
-    'Returns wind speed, precipitation, temperature and weather code from ' +
-    'Open-Meteo historical reanalysis (ERA5). Writes weather context to ' +
-    'Spatial Memory alongside Prithvi classification and Clay embeddings, ' +
-    'completing the full GEIANT perception chain for the target H3 cell.',
+    'Query atmospheric conditions for an H3 cell at a given timestamp from ' +
+    'Open-Meteo ERA5. Returns wind, precipitation, temperature. Writes to ' +
+    'Spatial Memory and drops a signed audit breadcrumb.',
     {
       h3_cell: z.string().describe('H3 cell ID at any resolution.'),
       timestamp: z.string().optional().describe(
@@ -782,7 +808,7 @@ function buildServer(): McpServer {
       ),
     },
     async ({ h3_cell, timestamp, write_to_spatial_memory = true }) => {
-      const result = await fetchWeather({ h3_cell, timestamp, write_to_spatial_memory });
+      const result = await auditedFetchWeather({ h3_cell, timestamp, write_to_spatial_memory });
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
     },
   );
@@ -796,11 +822,26 @@ function buildServer(): McpServer {
 
 async function main() {
   const prithviReady = !!PRITHVI_ENDPOINT_URL;
-  console.error('🛰️  GEIANT mcp-perception v0.2.0 starting');
+  const audit = getAuditEngine();
+  const auditStatus = audit ? '✓ audit trail active' : '⚠️ audit disabled (set GEIANT_AGENT_SK + GEIANT_DELEGATION_CERT)';
+
+  console.error('🛰️  GEIANT mcp-perception v0.3.0 starting');
   console.error(`   perception_fetch_tile  ✓ live`);
   console.error(`   perception_classify    ${prithviReady ? '✓ live' : '⏳ waiting for PRITHVI_ENDPOINT_URL'}`);
   console.error(`   perception_embed       ⏳ sub-phase 4.2`);
-  console.error(`   perception_weather     ⏳ sub-phase 4.3`);
+  console.error(`   perception_weather     ✓ live`);
+  console.error(`   🔗 ${auditStatus}`);
+
+  if (audit) {
+    try {
+      await audit.init();
+      console.error(`   🍞 Agent PK: ${audit.agentPublicKey.substring(0, 16)}...`);
+      console.error(`   📜 Cert hash: ${audit.delegationCertificateHash.substring(0, 16)}...`);
+      console.error(`   📊 Chain tip: block #${audit.chainTip.index}`);
+    } catch (err) {
+      console.error(`   ⚠️  Audit init failed: ${err}`);
+    }
+  }
 
   const srv = buildServer();
   const transport = new StdioServerTransport();
