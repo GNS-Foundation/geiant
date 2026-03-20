@@ -27,7 +27,8 @@
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import express from 'express';
 import { z } from 'zod';
 import { cellToBoundary, getResolution, latLngToCell } from 'h3-js';
 import { createClient } from '@supabase/supabase-js';
@@ -817,13 +818,17 @@ function buildServer(): McpServer {
 }
 
 // ---------------------------------------------------------------------------
-// Bootstrap
+// Bootstrap — HTTP/SSE Transport for Railway deployment
 // ---------------------------------------------------------------------------
+
+const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
 async function main() {
   const prithviReady = !!PRITHVI_ENDPOINT_URL;
   const audit = getAuditEngine();
-  const auditStatus = audit ? '✓ audit trail active' : '⚠️ audit disabled (set GEIANT_AGENT_SK + GEIANT_DELEGATION_CERT)';
+  const auditStatus = audit
+    ? '✓ audit trail active'
+    : '⚠️ audit disabled (set GEIANT_AGENT_SK + GEIANT_DELEGATION_CERT)';
 
   console.error('🛰️  GEIANT mcp-perception v0.3.0 starting');
   console.error(`   perception_fetch_tile  ✓ live`);
@@ -844,9 +849,59 @@ async function main() {
   }
 
   const srv = buildServer();
-  const transport = new StdioServerTransport();
-  await srv.connect(transport);
-  console.error('✅  mcp-perception ready — 4 tools registered');
+  const app = express();
+
+  // Health check
+  app.get('/health', (_req, res) => {
+    res.json({
+      status: 'ok',
+      service: 'geiant-mcp-perception',
+      version: '0.3.0',
+      audit_active: !!audit,
+      agent_pk: audit?.agentPublicKey?.substring(0, 16) ?? null,
+      chain_tip: audit?.chainTip?.index ?? null,
+      tools: ['perception_fetch_tile', 'perception_classify', 'perception_embed', 'perception_weather'],
+    });
+  });
+
+  // SSE transport: one MCP session per client connection
+  const sessions = new Map<string, SSEServerTransport>();
+
+  app.get('/sse', (req, res) => {
+    const transport = new SSEServerTransport('/message', res);
+    const sessionId = transport.sessionId;
+    sessions.set(sessionId, transport);
+
+    console.error(`🔌 SSE client connected: ${sessionId}`);
+
+    res.on('close', () => {
+      sessions.delete(sessionId);
+      console.error(`🔌 SSE client disconnected: ${sessionId}`);
+    });
+
+    srv.connect(transport).catch((err: any) => {
+      console.error(`💥 MCP connect error: ${err}`);
+    });
+  });
+
+  app.post('/message', express.json(), (req, res) => {
+    const sessionId = req.query.sessionId as string;
+    const transport = sessions.get(sessionId);
+
+    if (!transport) {
+      res.status(400).json({ error: 'Unknown session. Connect via GET /sse first.' });
+      return;
+    }
+
+    transport.handlePostMessage(req, res);
+  });
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.error(`✅  mcp-perception listening on port ${PORT}`);
+    console.error(`   SSE:     GET  http://0.0.0.0:${PORT}/sse`);
+    console.error(`   Message: POST http://0.0.0.0:${PORT}/message`);
+    console.error(`   Health:  GET  http://0.0.0.0:${PORT}/health`);
+  });
 }
 
 main().catch((err) => {
