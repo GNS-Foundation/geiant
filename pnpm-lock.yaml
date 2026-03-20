@@ -168,7 +168,7 @@ importers:
         specifier: workspace:*
         version: link:../core
       '@geiant/mcp-audit':
-        specifier: workspace:*
+        specifier: file:../mcp-audit
         version: link:../mcp-audit
       '@modelcontextprotocol/sdk':
         specifier: ^1.27.1

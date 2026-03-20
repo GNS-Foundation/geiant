@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@geiant/core": "workspace:*",
-    "@geiant/mcp-audit": "workspace:*",
+    "@geiant/mcp-audit": "file:../mcp-audit",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@supabase/supabase-js": "^2.49.8",
     "express": "^5.2.1",
