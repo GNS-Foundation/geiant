@@ -864,6 +864,20 @@ async function main() {
     });
   });
 
+  // Test endpoint — triggers weather + audit breadcrumb directly
+  app.get('/test/weather', async (_req, res) => {
+    try {
+      const result = await auditedFetchWeather({
+        h3_cell: '851e8053fffffff',
+        timestamp: '2026-03-15T12:00:00Z',
+        write_to_spatial_memory: false,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // SSE transport: one MCP session per client connection
   const sessions = new Map<string, SSEServerTransport>();
 
