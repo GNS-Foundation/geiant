@@ -3,13 +3,12 @@
   "version": "0.1.0",
   "description": "GEIANT Phase 5 — Agent audit trail with virtual breadcrumb chain, delegation certificates, and EU AI Act compliance",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "src/index.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./chain": "./dist/chain.js",
-    "./middleware": "./dist/middleware.js",
-    "./types": "./dist/types.js"
+    ".": "./src/index.ts",
+    "./chain": "./src/chain.ts",
+    "./middleware": "./src/middleware.ts",
+    "./types": "./src/types.ts"
   },
   "scripts": {
     "build": "tsc",
