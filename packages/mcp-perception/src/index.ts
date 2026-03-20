@@ -867,7 +867,13 @@ async function main() {
   // Test endpoint — triggers weather + audit breadcrumb directly
   app.get('/test/weather', async (_req, res) => {
     try {
-      const result = await auditedFetchWeather({
+      const engine = getAuditEngine();
+      const wrapped = engine
+        ? engine.wrapTool('perception_weather', fetchWeather, {
+            locationCell: () => '851e8053fffffff',
+          })
+        : fetchWeather;
+      const result = await wrapped({
         h3_cell: '851e8053fffffff',
         timestamp: '2026-03-15T12:00:00Z',
         write_to_spatial_memory: false,
