@@ -690,7 +690,7 @@ function getAuditEngine(): AuditEngine | null {
 function buildServer(): McpServer {
   const srv = new McpServer({
     name: 'geiant-perception',
-    version: '0.3.1',  // Bumped for Phase 5.1.2 audit integration
+    version: '0.3.0',  // Bumped for Phase 5.1.2 audit integration
   });
 
   // Try to get audit engine (may be null if env vars not set)
@@ -879,6 +879,47 @@ async function main() {
         write_to_spatial_memory: false,
       });
       res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Phase 5.1.3 — Epoch Rollup ──
+  app.post('/epoch/roll', async (_req, res) => {
+    try {
+      const engine = getAuditEngine();
+      if (!engine) {
+        res.status(503).json({ error: 'Audit engine not configured' });
+        return;
+      }
+      const epoch = await engine.rollEpoch();
+      res.json({
+        success: true,
+        epoch_index: epoch.epoch_index,
+        block_count: epoch.block_count,
+        start_block: epoch.start_block_index,
+        end_block: epoch.end_block_index,
+        merkle_root: epoch.merkle_root,
+        tier_at_close: epoch.tier_at_close,
+        epoch_hash: epoch.epoch_hash,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Phase 5.1.4 — Compliance Report ──
+  app.get('/compliance/:agent_pk?', async (req, res) => {
+    try {
+      const engine = getAuditEngine();
+      if (!engine) {
+        res.status(503).json({ error: 'Audit engine not configured' });
+        return;
+      }
+      const from = req.query.from as string | undefined;
+      const to = req.query.to as string | undefined;
+      const report = await engine.generateComplianceReport({ from, to });
+      res.json(report);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

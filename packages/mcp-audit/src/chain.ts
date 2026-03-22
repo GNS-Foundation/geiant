@@ -367,3 +367,90 @@ export async function buildContextDigest(
   const contextDigest = await sha256Hex(`${inputHash}:${outputHash}`);
   return { contextDigest, inputHash, outputHash };
 }
+
+// ===========================================
+// Merkle Tree (for Epoch Rollups)
+// ===========================================
+
+/**
+ * Build a binary Merkle tree from an array of leaf hashes.
+ * Returns the root hash. If single leaf, root = hash(leaf).
+ */
+export async function merkleRoot(leafHashes: string[]): Promise<string> {
+  if (leafHashes.length === 0) return sha256Hex('empty');
+  if (leafHashes.length === 1) return leafHashes[0];
+
+  let level = [...leafHashes];
+  while (level.length > 1) {
+    const next: string[] = [];
+    for (let i = 0; i < level.length; i += 2) {
+      const left = level[i];
+      const right = i + 1 < level.length ? level[i + 1] : left; // duplicate odd leaf
+      next.push(await sha256Hex(`${left}:${right}`));
+    }
+    level = next;
+  }
+  return level[0];
+}
+
+// ===========================================
+// Epoch Builder
+// ===========================================
+
+export interface EpochBuildParams {
+  epochIndex: number;
+  agentPk: string;
+  agentSk: Uint8Array;
+  blocks: VirtualBreadcrumbBlock[];
+  previousEpochHash: string | null;
+  delegationCertHash: string;
+}
+
+export async function buildEpoch(params: EpochBuildParams): Promise<import('./types').AgentEpochSummary> {
+  const { epochIndex, agentPk, agentSk, blocks, previousEpochHash, delegationCertHash } = params;
+
+  if (blocks.length === 0) throw new Error('Cannot build epoch from zero blocks');
+
+  const sorted = [...blocks].sort((a, b) => a.index - b.index);
+  const root = await merkleRoot(sorted.map(b => b.block_hash));
+
+  const toolsUsed = [...new Set(sorted.map(b => b.tool_name))];
+  const jurisdictionCells = [...new Set(sorted.map(b => b.location_cell))];
+  const tierAtClose = computeTier(sorted[sorted.length - 1].index + 1);
+
+  const epochData = canonicalJson({
+    epoch_index: epochIndex,
+    agent_pk: agentPk,
+    start_block_index: sorted[0].index,
+    end_block_index: sorted[sorted.length - 1].index,
+    block_count: sorted.length,
+    merkle_root: root,
+    previous_epoch_hash: previousEpochHash ?? 'genesis',
+    delegation_cert_hash: delegationCertHash,
+    tools_used: toolsUsed,
+    jurisdiction_cells: jurisdictionCells,
+    tier_at_close: tierAtClose,
+  });
+
+  const sigBytes = nacl.sign.detached(encoder.encode(epochData), agentSk);
+  const signature = bytesToHex(sigBytes);
+  const epochHash = await sha256Hex(`${epochData}:${signature}`);
+
+  return {
+    epoch_index: epochIndex,
+    agent_pk: agentPk,
+    start_time: sorted[0].timestamp,
+    end_time: sorted[sorted.length - 1].timestamp,
+    start_block_index: sorted[0].index,
+    end_block_index: sorted[sorted.length - 1].index,
+    block_count: sorted.length,
+    merkle_root: root,
+    previous_epoch_hash: previousEpochHash,
+    delegation_cert_hash: delegationCertHash,
+    tools_used: toolsUsed,
+    jurisdiction_cells: jurisdictionCells,
+    tier_at_close: tierAtClose,
+    signature,
+    epoch_hash: epochHash,
+  };
+}

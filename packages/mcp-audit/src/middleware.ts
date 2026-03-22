@@ -13,6 +13,10 @@ import {
   AgentTier,
   DelegationCertificate,
   DbAgentBreadcrumb,
+  AgentEpochSummary,
+  ComplianceReport,
+  ComplianceViolation,
+  ChainVerificationResult,
 } from './types';
 import {
   buildBlock,
@@ -26,6 +30,10 @@ import {
   checkFacet,
   checkToolAllowed,
   computeTier,
+  computeTrustScore,
+  verifyChain,
+  merkleRoot,
+  buildEpoch,
 } from './chain';
 
 // ===========================================
@@ -412,6 +420,255 @@ export class AuditEngine {
 
       return output;
     };
+  }
+
+  // ===========================================
+  // Epoch Rollup (Phase 5.1.3)
+  // ===========================================
+  // Merkle-rolls all breadcrumbs since last epoch
+  // into a signed AgentEpochSummary, stored in agent_epochs.
+
+  async rollEpoch(): Promise<AgentEpochSummary> {
+    if (!this.initialized) await this.init();
+
+    // Find last epoch for this agent
+    const { data: lastEpoch } = await this.supabase
+      .from('agent_epochs')
+      .select('epoch_index, end_block_index, epoch_hash')
+      .eq('agent_pk', this.agentPk)
+      .order('epoch_index', { ascending: false })
+      .limit(1)
+      .single();
+
+    const epochIndex = lastEpoch ? lastEpoch.epoch_index + 1 : 0;
+    const startBlockIndex = lastEpoch ? lastEpoch.end_block_index + 1 : 0;
+    const previousEpochHash = lastEpoch ? lastEpoch.epoch_hash : null;
+
+    // Fetch all breadcrumbs since last epoch
+    const { data: blocks, error: fetchErr } = await this.supabase
+      .from('agent_breadcrumbs')
+      .select('*')
+      .eq('agent_pk', this.agentPk)
+      .gte('block_index', startBlockIndex)
+      .order('block_index', { ascending: true });
+
+    if (fetchErr) throw new Error(`EPOCH: failed to fetch blocks: ${fetchErr.message}`);
+    if (!blocks || blocks.length === 0) {
+      throw new Error(`EPOCH: no blocks to roll since block_index ${startBlockIndex}`);
+    }
+
+    // Map DB rows to VirtualBreadcrumbBlock shape
+    const vblocks: VirtualBreadcrumbBlock[] = blocks.map(b => ({
+      index: b.block_index,
+      identity_public_key: b.agent_pk,
+      timestamp: b.timestamp,
+      location_cell: b.location_cell,
+      location_resolution: b.location_resolution,
+      context_digest: b.context_digest,
+      previous_hash: b.previous_hash,
+      meta_flags: b.meta_flags,
+      signature: b.signature,
+      block_hash: b.block_hash,
+      delegation_cert_hash: b.delegation_cert_hash,
+      tool_name: b.tool_name,
+      facet: b.facet,
+    }));
+
+    // Build the epoch
+    const epoch = await buildEpoch({
+      epochIndex,
+      agentPk: this.agentPk,
+      agentSk: this.agentSk,
+      blocks: vblocks,
+      previousEpochHash,
+      delegationCertHash: this.certHash,
+    });
+
+    // Write to Supabase
+    const { error: writeErr } = await this.supabase
+      .from('agent_epochs')
+      .insert({
+        agent_pk: epoch.agent_pk,
+        epoch_index: epoch.epoch_index,
+        start_time: epoch.start_time,
+        end_time: epoch.end_time,
+        start_block_index: epoch.start_block_index,
+        end_block_index: epoch.end_block_index,
+        block_count: epoch.block_count,
+        merkle_root: epoch.merkle_root,
+        previous_epoch_hash: epoch.previous_epoch_hash,
+        delegation_cert_hash: epoch.delegation_cert_hash,
+        tools_used: epoch.tools_used,
+        jurisdiction_cells: epoch.jurisdiction_cells,
+        tier_at_close: epoch.tier_at_close,
+        signature: epoch.signature,
+        epoch_hash: epoch.epoch_hash,
+      });
+
+    if (writeErr) throw new Error(`EPOCH: write failed: ${writeErr.message}`);
+
+    console.log(
+      `📦 Epoch #${epoch.epoch_index} rolled: ${epoch.block_count} blocks ` +
+      `[${epoch.start_block_index}→${epoch.end_block_index}] ` +
+      `merkle=${epoch.merkle_root.substring(0, 12)}... ` +
+      `tier=${epoch.tier_at_close}`
+    );
+
+    return epoch;
+  }
+
+  // ===========================================
+  // Compliance Report (Phase 5.1.4)
+  // ===========================================
+  // Generates a full EU AI Act Art. 12/14 report
+  // from Supabase tables: breadcrumbs, epochs, certs, violations.
+
+  async generateComplianceReport(period?: {
+    from?: string;
+    to?: string;
+  }): Promise<ComplianceReport> {
+    if (!this.initialized) await this.init();
+
+    const from = period?.from ?? '2020-01-01T00:00:00Z';
+    const to = period?.to ?? new Date().toISOString();
+
+    // 1. Fetch breadcrumbs in period
+    const { data: blocks } = await this.supabase
+      .from('agent_breadcrumbs')
+      .select('*')
+      .eq('agent_pk', this.agentPk)
+      .gte('timestamp', from)
+      .lte('timestamp', to)
+      .order('block_index', { ascending: true });
+
+    const breadcrumbs = blocks ?? [];
+
+    // 2. Fetch epochs in period
+    const { data: epochRows } = await this.supabase
+      .from('agent_epochs')
+      .select('*')
+      .eq('agent_pk', this.agentPk)
+      .gte('start_time', from)
+      .lte('end_time', to)
+      .order('epoch_index', { ascending: true });
+
+    const epochs: AgentEpochSummary[] = (epochRows ?? []).map(e => ({
+      epoch_index: e.epoch_index,
+      agent_pk: e.agent_pk,
+      start_time: e.start_time,
+      end_time: e.end_time,
+      start_block_index: e.start_block_index,
+      end_block_index: e.end_block_index,
+      block_count: e.block_count,
+      merkle_root: e.merkle_root,
+      previous_epoch_hash: e.previous_epoch_hash,
+      delegation_cert_hash: e.delegation_cert_hash,
+      tools_used: e.tools_used,
+      jurisdiction_cells: e.jurisdiction_cells,
+      tier_at_close: e.tier_at_close as AgentTier,
+      signature: e.signature,
+      epoch_hash: e.epoch_hash,
+    }));
+
+    // 3. Fetch violations
+    const { data: violationRows } = await this.supabase
+      .from('compliance_violations')
+      .select('*')
+      .eq('agent_pk', this.agentPk)
+      .gte('created_at', from)
+      .lte('created_at', to)
+      .order('created_at', { ascending: true });
+
+    const violations: ComplianceViolation[] = (violationRows ?? []).map(v => ({
+      block_index: v.block_index ?? 0,
+      timestamp: v.created_at,
+      type: v.violation_type as ComplianceViolation['type'],
+      description: v.description,
+      severity: v.severity as 'warning' | 'critical',
+    }));
+
+    // 4. Fetch agent registry
+    const { data: agent } = await this.supabase
+      .from('agent_registry')
+      .select('*')
+      .eq('agent_pk', this.agentPk)
+      .single();
+
+    // 5. Verify chain
+    const vblocks: VirtualBreadcrumbBlock[] = breadcrumbs.map(b => ({
+      index: b.block_index,
+      identity_public_key: b.agent_pk,
+      timestamp: b.timestamp,
+      location_cell: b.location_cell,
+      location_resolution: b.location_resolution,
+      context_digest: b.context_digest,
+      previous_hash: b.previous_hash,
+      meta_flags: b.meta_flags,
+      signature: b.signature,
+      block_hash: b.block_hash,
+      delegation_cert_hash: b.delegation_cert_hash,
+      tool_name: b.tool_name,
+      facet: b.facet,
+    }));
+
+    const chainVerification = await verifyChain(vblocks);
+
+    // 6. Compute operations by tool
+    const opsByTool: Record<string, number> = {};
+    for (const b of breadcrumbs) {
+      opsByTool[b.tool_name] = (opsByTool[b.tool_name] ?? 0) + 1;
+    }
+
+    // 7. Compute trust score
+    const uniqueCells = new Set(breadcrumbs.map(b => b.location_cell)).size;
+    const daysSinceFirst = breadcrumbs.length > 0
+      ? (Date.now() - new Date(breadcrumbs[0].timestamp).getTime()) / 86400000
+      : 0;
+
+    const trustScore = computeTrustScore({
+      opCount: breadcrumbs.length,
+      uniqueCells,
+      daysSinceFirst,
+      chainValid: chainVerification.is_valid,
+    });
+
+    // 8. Build report
+    const report: ComplianceReport = {
+      version: 1,
+      generated_at: new Date().toISOString(),
+      agent_pk: this.agentPk,
+      agent_handle: agent?.handle ?? this.config.defaultFacet,
+      principal_pk: this.cert.principal_pk,
+      reporting_period: { from, to },
+
+      // Art. 12 — Record-keeping
+      total_operations: breadcrumbs.length,
+      operations_by_tool: opsByTool,
+      jurisdiction_cells: [...new Set(breadcrumbs.map(b => b.location_cell))],
+      chain_verification: chainVerification,
+      epochs,
+
+      // Art. 14 — Human oversight
+      delegation_certificate: this.cert,
+      delegation_chain_depth: this.cert.max_depth,
+      human_approvals_required: breadcrumbs.filter(
+        b => this.cert.constraints?.require_human_approval?.includes(b.tool_name)
+      ).length,
+      human_approvals_received: 0, // TODO: wire to HITL tracker
+
+      // Trust assessment
+      current_tier: computeTier(breadcrumbs.length) as AgentTier,
+      trust_score: Math.round(trustScore * 100) / 100,
+      violations,
+    };
+
+    console.log(
+      `📊 Compliance report generated: ${report.total_operations} ops, ` +
+      `${report.epochs.length} epochs, ${report.violations.length} violations, ` +
+      `tier=${report.current_tier}, score=${report.trust_score}`
+    );
+
+    return report;
   }
 
   // ===========================================

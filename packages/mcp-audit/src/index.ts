@@ -5,4 +5,5 @@
 
 export * from './types';
 export * from './chain';
-export { AuditEngine, AuditConfig, createAuditEngine } from './middleware';
+export { AuditEngine, createAuditEngine } from './middleware';
+export type { AuditConfig } from './middleware';
