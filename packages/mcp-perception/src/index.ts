@@ -690,7 +690,7 @@ function getAuditEngine(): AuditEngine | null {
 function buildServer(): McpServer {
   const srv = new McpServer({
     name: 'geiant-perception',
-    version: '0.3.0',  // Bumped for Phase 5.1.2 audit integration
+    version: '0.3.1',  // Bumped for Phase 5.1.2 audit integration
   });
 
   // Try to get audit engine (may be null if env vars not set)
@@ -856,7 +856,7 @@ async function main() {
     res.json({
       status: 'ok',
       service: 'geiant-mcp-perception',
-      version: '0.3.0',
+      version: '0.3.1',
       audit_active: !!audit,
       agent_pk: audit?.agentPublicKey?.substring(0, 16) ?? null,
       chain_tip: audit?.chainTip?.index ?? null,
@@ -904,7 +904,7 @@ async function main() {
     });
   });
 
-  app.post('/message', express.json(), (req, res) => {
+  app.post('/message', (req, res) => {
     const sessionId = req.query.sessionId as string;
     const transport = sessions.get(sessionId);
 
