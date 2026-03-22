@@ -909,7 +909,7 @@ async function main() {
   });
 
   // ── Phase 5.1.4 — Compliance Report ──
-  app.get('/compliance/:agent_pk?', async (req, res) => {
+  const handleCompliance = async (req: any, res: any) => {
     try {
       const engine = getAuditEngine();
       if (!engine) {
@@ -923,7 +923,9 @@ async function main() {
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
-  });
+  };
+  app.get('/compliance', handleCompliance);
+  app.get('/compliance/:agent_pk', handleCompliance);
 
   // SSE transport: one MCP session per client connection
   const sessions = new Map<string, SSEServerTransport>();
