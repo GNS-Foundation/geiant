@@ -79,6 +79,11 @@ export class AuditEngine {
     this.cert = config.delegationCertificate;
   }
 
+  // Supabase TIMESTAMPTZ returns "+00:00" but blocks were signed with "Z"
+  private normalizeTimestamp(ts: string): string {
+    return ts.replace('+00:00', 'Z').replace('+00', 'Z');
+  }
+
   // ===========================================
   // Initialization — load chain tip from DB
   // ===========================================
@@ -461,7 +466,7 @@ export class AuditEngine {
     const vblocks: VirtualBreadcrumbBlock[] = blocks.map(b => ({
       index: b.block_index,
       identity_public_key: b.agent_pk,
-      timestamp: b.timestamp,
+      timestamp: this.normalizeTimestamp(b.timestamp),
       location_cell: b.location_cell,
       location_resolution: b.location_resolution,
       context_digest: b.context_digest,
@@ -598,7 +603,7 @@ export class AuditEngine {
     const vblocks: VirtualBreadcrumbBlock[] = breadcrumbs.map(b => ({
       index: b.block_index,
       identity_public_key: b.agent_pk,
-      timestamp: b.timestamp,
+      timestamp: this.normalizeTimestamp(b.timestamp),
       location_cell: b.location_cell,
       location_resolution: b.location_resolution,
       context_digest: b.context_digest,
