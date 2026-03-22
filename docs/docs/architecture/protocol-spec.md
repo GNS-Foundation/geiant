@@ -1,3 +1,8 @@
+---
+sidebar_position: 4
+title: Protocol Specification
+---
+
 # GEIANT Protocol Specification
 ## Geo-Identity Agent Navigation & Tasking
 ### Version 0.1 | March 2026 | DRAFT

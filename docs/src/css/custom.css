@@ -1,0 +1,52 @@
+:root {
+  --ifm-color-primary: #00D4FF;
+  --ifm-color-primary-dark: #00bfe6;
+  --ifm-color-primary-darker: #00b4d9;
+  --ifm-color-primary-darkest: #0094b3;
+  --ifm-color-primary-light: #1adbff;
+  --ifm-color-primary-lighter: #33dfff;
+  --ifm-color-primary-lightest: #66e8ff;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 212, 255, 0.1);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #00D4FF;
+  --ifm-color-primary-dark: #00bfe6;
+  --ifm-color-primary-darker: #00b4d9;
+  --ifm-color-primary-darkest: #0094b3;
+  --ifm-color-primary-light: #1adbff;
+  --ifm-color-primary-lighter: #33dfff;
+  --ifm-color-primary-lightest: #66e8ff;
+  --ifm-background-color: #0A0F1E;
+  --ifm-background-surface-color: #111827;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 212, 255, 0.15);
+}
+
+.navbar {
+  border-bottom: 1px solid rgba(0, 212, 255, 0.15);
+}
+
+.navbar__title {
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.footer--dark {
+  background-color: #070B14;
+  border-top: 1px solid rgba(0, 212, 255, 0.1);
+}
+
+/* Code blocks */
+pre code {
+  font-size: 13px;
+}
+
+/* Tables */
+table th {
+  background-color: rgba(0, 212, 255, 0.05);
+}
+
+[data-theme='dark'] table th {
+  background-color: rgba(0, 212, 255, 0.08);
+}
