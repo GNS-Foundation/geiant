@@ -37,6 +37,17 @@ const sidebars: SidebarsConfig = {
         'api/http-endpoints',
       ],
     },
+    {
+      type: 'category',
+      label: 'Hive',
+      items: [
+        'hive/overview',
+        'hive/quick-start',
+        'hive/h3-resolution',
+        'hive/worker-cli',
+        'hive/api-reference',
+      ],
+    },
   ],
 };
 
