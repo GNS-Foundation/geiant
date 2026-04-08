@@ -1,208 +1,178 @@
 ---
-sidebar_position: 5
-title: API Reference
+sidebar_position: 6
 ---
 
-# Hive API Reference
+# API Reference
 
-The GEIANT Hive API is OpenAI-compatible. Any application using the OpenAI SDK can switch to Hive by changing the base URL and adding optional jurisdiction headers.
+## Unified Compute
 
-**Base URL:** `https://hive.geiant.com/v1`
+The primary Hive API. All compute types go through one endpoint.
 
-**Authentication:** `Authorization: Bearer YOUR_API_KEY`
+### POST /v1/compute
 
-Get an API key from the [Hive Console](https://hive.geiant.com/console).
+Submit a compute job with one or more steps.
 
-## OpenAI-compatible endpoints
+→ [Full documentation](/hive/unified-compute)
+
+```bash
+curl -X POST https://gns-browser-production.up.railway.app/v1/compute \
+  -H "Content-Type: application/json" \
+  -d '{"requester_pk":"YOUR_PK","h3_cell":"871e9a0ecffffff","steps":[{"id":"ask","type":"inference","messages":[{"role":"user","content":"Hello"}]}]}'
+```
+
+### GET /v1/compute/:jobId
+
+Retrieve a completed job by ID.
+
+### GET /v1/compute/recent?limit=50
+
+List recent compute jobs.
+
+---
+
+## Tile Rendering
+
+MapLibre GL JS and flutter_map compatible. No API key required.
+
+→ [Full documentation](/hive/tile-rendering)
+
+### GET /v1/tiles/{h3_cell}/{zoom}/{style}.{format}
+
+Serve a map tile. Styles: `osm-bright`, `dark`, `satellite`, `terrain`, `osm-standard`.
+
+```bash
+curl -o tile.png https://gns-browser-production.up.railway.app/v1/tiles/871e9a0ecffffff/15/osm-bright.png
+```
+
+### GET /v1/tiles/grid/{cell}/{zoom}/{style}?rings=1
+
+JSON grid of tile URLs for a cell and surrounding rings.
+
+### GET /v1/tiles/stats?hours=24
+
+Hourly tile serving statistics.
+
+---
+
+## Satellite Imagery
+
+Sentinel-2 L2A via Element84 Earth Search. Free, no API key.
+
+→ [Full documentation](/hive/satellite-imagery)
+
+### GET /v1/imagery/scenes?cell={h3}&from={date}&to={date}&cloud={%}&limit={n}
+
+Search recent Sentinel-2 scenes.
+
+### GET /v1/imagery/ndvi?cell={h3}&from={date}&to={date}
+
+Calculate NDVI for an H3 cell.
+
+```bash
+curl "https://gns-browser-production.up.railway.app/v1/imagery/ndvi?cell=871e9a0ecffffff"
+```
+
+### POST /v1/imagery/process
+
+Run a named operation (ndvi, cloud_mask, scene_search, atmospheric_correction).
+
+---
+
+## MobyDB (Proof Layer)
+
+→ [Full documentation](/hive/mobydb)
+
+### POST /mobydb/sync
+
+Workers push local records to central storage.
+
+### POST /mobydb/epochs
+
+Workers push epoch seals.
+
+### GET /mobydb/query?cell={h3}&epoch_start={n}&epoch_end={n}&collection={type}&limit={n}
+
+Query records across all workers.
+
+### GET /mobydb/proof/{record_id}
+
+Verify a record's Merkle proof. Returns record, epoch seal, and verification status.
+
+---
+
+## Inference Audit Trail
+
+### GET /hive/inference/recent?limit=50
+
+Recent inference audit logs.
+
+### GET /hive/inference/stats?hours=24
+
+Hourly aggregated inference statistics.
+
+---
+
+## OpenAI-Compatible (Legacy)
+
+These endpoints remain available for backward compatibility.
 
 ### POST /v1/chat/completions
 
-Standard chat completion. Drop-in replacement for `openai.chat.completions.create`.
-
-**Request:**
-
-```json
-{
-  "model": "tinyllama",
-  "messages": [
-    {"role": "user", "content": "Explain H3 geospatial indexing in one paragraph."}
-  ],
-  "max_tokens": 150,
-  "temperature": 0.7,
-  "stream": false
-}
-```
-
-**Response:**
-
-```json
-{
-  "id": "hive-800ff8e0",
-  "object": "chat.completion",
-  "model": "tinyllama",
-  "choices": [{
-    "index": 0,
-    "message": {
-      "role": "assistant",
-      "content": "H3 is a hierarchical hexagonal geospatial indexing system..."
-    },
-    "finish_reason": "stop"
-  }],
-  "usage": {
-    "prompt_tokens": 18,
-    "completion_tokens": 47,
-    "total_tokens": 65
-  }
-}
-```
-
-**Available models:**
-
-| Model ID | Parameters | Size | Notes |
-|----------|-----------|------|-------|
-| `tinyllama` | 1.1B | 635 MB | Fast. Good for testing and simple tasks. |
-| `phi-3-mini` | 3.8B | 2.3 GB | Good quality/speed balance. |
-| `gemma-2-2b` | 2B | 1.6 GB | Google Gemma-2 instruction-tuned. |
-
-### GET /v1/models
-
-List available models in the swarm.
-
-```bash
-curl https://hive.geiant.com/v1/models \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
----
-
-## Jurisdiction headers {#jurisdiction-headers}
-
-These are Hive-specific headers that add geographic enforcement to any inference call. They are optional — without them, the scheduler selects the nearest available worker.
-
-| Header | Type | Description |
-|--------|------|-------------|
-| `x-hive-jurisdiction` | string | Restrict inference to workers in this jurisdiction. E.g. `EU`, `US`, `IT`. |
-| `x-hive-h3-cell` | string | Target a specific H3 cell (e.g. `861e8050fffffff`). Overrides jurisdiction. |
-| `x-hive-min-tier` | string | Minimum worker trust tier: `seedling`, `explorer`, `navigator`, `trailblazer`, `sovereign`. |
-| `x-hive-delegation-cert` | string | Base64-encoded delegation certificate for agent-authenticated requests. |
-
-**Example — GDPR-compliant EU inference:**
-
-```bash
-curl -X POST https://hive.geiant.com/v1/chat/completions \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -H "x-hive-jurisdiction: EU" \
-  -H "x-hive-min-tier: trusted" \
-  -d '{
-    "model": "phi-3-mini",
-    "messages": [{"role": "user", "content": "Summarise this patient record: ..."}],
-    "max_tokens": 200
-  }'
-```
-
-The scheduler will only route this job to workers registered in EEA H3 cells with trust tier ≥ `trusted`. If no eligible workers are available, the request returns HTTP 503.
-
-**Example — OpenAI Python SDK, one line change:**
+Standard OpenAI-compatible chat completion. Drop-in replacement.
 
 ```python
 from openai import OpenAI
 
 client = OpenAI(
     api_key="YOUR_HIVE_API_KEY",
-    base_url="https://hive.geiant.com/v1",  # ← only change
+    base_url="https://hive.geiant.com/v1",
 )
 
 response = client.chat.completions.create(
     model="phi-3-mini",
     messages=[{"role": "user", "content": "Hello"}],
-    extra_headers={
-        "x-hive-jurisdiction": "EU",  # optional
-    }
 )
 ```
 
+### GET /v1/models
+
+List available models in the swarm.
+
 ---
 
-## Hive-specific endpoints
+## Jurisdiction Headers
 
-### POST /hive/jobs
+Optional headers for geographic enforcement on any request:
 
-Submit an inference job directly to the job queue. Useful for batch workloads or when you want more control over routing than the chat completions endpoint provides.
+| Header | Description |
+|--------|-------------|
+| `x-hive-jurisdiction` | Restrict to workers in this jurisdiction (EU, US, IT) |
+| `x-hive-h3-cell` | Target a specific H3 cell |
+| `x-hive-min-tier` | Minimum worker trust tier |
+| `x-hive-delegation-cert` | Base64 delegation certificate |
 
-**Request:**
+---
 
-```json
-{
-  "h3_cell": "861e8050fffffff",
-  "model_id": "tinyllama",
-  "prompt": "What is decentralized AI inference?",
-  "max_tokens": 60,
-  "temperature": 0.7,
-  "gns_reward": 0.01,
-  "jurisdiction": "EU",
-  "min_trust_tier": "observed"
-}
-```
+## Pricing
 
-**Response:**
+| Compute Type | Unit | Price (GNS) |
+|-------------|------|-------------|
+| Inference (Hive) | Per token | 0.00001 |
+| Inference (Groq) | Per token | 0 (subsidized) |
+| Tile (cache hit) | Per tile | 0.00001 |
+| Tile (cache miss) | Per tile | 0.0001 |
+| Image processing | Per megapixel | 0.001 |
+| Sensor fusion | Per cell-epoch | 0.0005 |
+| Merkle proof | Per proof | 0.0001 |
 
-```json
-{
-  "job_id": "800ff8e0-19dc-4072-9a85-daf7d003e5c6",
-  "status": "pending",
-  "h3_cell": "861e8050fffffff",
-  "created_at": "2026-03-28T10:57:36.000Z"
-}
-```
+### Subscription tiers
 
-### GET /hive/jobs/:id
-
-Poll for job completion.
-
-```bash
-curl https://hive.geiant.com/hive/jobs/800ff8e0-19dc-4072-9a85-daf7d003e5c6 \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
-**Response when completed:**
-
-```json
-{
-  "id": "800ff8e0-19dc-4072-9a85-daf7d003e5c6",
-  "status": "completed",
-  "result_text": "Decentralized AI inference is a type of AI that uses multiple, decentralized servers...",
-  "tokens_generated": 47,
-  "tokens_per_second": 244.3,
-  "worker_pk": "4d7f2ba9...",
-  "settled": true,
-  "stellar_tx_hash": "34b02ac18a923bcf050e4177b8c5accc87abbb0674ba6cc3a6b4b6807dff56dd",
-  "completed_at": "2026-03-28T10:57:38.000Z"
-}
-```
-
-Job `status` values: `pending` → `assigned` → `computing` → `completed` / `failed` / `timed_out`.
-
-### GET /hive/status
-
-Live swarm status. No authentication required.
-
-```bash
-curl https://hive.geiant.com/hive/status
-```
-
-**Response:**
-
-```json
-{
-  "active_nodes": 3,
-  "total_tflops": 12.8,
-  "computing_nodes": 1,
-  "avg_ram_gb": 16.0,
-  "active_h3_cells": 2,
-  "total_tokens_distributed": 0.42
-}
-```
+| Tier | Price | Inference | Tiles | Imagery |
+|------|-------|-----------|-------|---------|
+| **Free** (GCRUMBS) | $0 | 50 msg/day @hai | Shared cache | — |
+| **Hive Pro** | $29/mo | Unlimited | Unlimited, custom styles | 100 scenes/mo |
+| **Hive Enterprise** | €490–1,490/mo | Private workers, SLA | Private tile server | Unlimited |
+| **Hive Maps API** | Usage-based | — | Pay-per-tile | — |
 
 ---
 
@@ -210,18 +180,8 @@ curl https://hive.geiant.com/hive/status
 
 | HTTP | Code | Meaning |
 |------|------|---------|
-| 400 | `invalid_model` | Model not available in the swarm. |
-| 400 | `invalid_cell` | H3 cell string is malformed. |
-| 401 | `unauthorized` | Missing or invalid API key. |
-| 503 | `no_workers` | No eligible workers in the target cell/jurisdiction. Retry with a wider H3 resolution or remove jurisdiction constraint. |
-| 504 | `job_timeout` | Job was claimed but not completed within the timeout (5 minutes default). |
-
----
-
-## Rate limits
-
-| Plan | Requests/min | Concurrent jobs |
-|------|-------------|-----------------|
-| Free (GCRUMBS) | 50 messages/day | 1 |
-| Hive Pro ($29/mo) | 120 req/min | 10 |
-| Enterprise | Custom SLA | Unlimited |
+| 400 | `invalid_model` | Model not available |
+| 400 | `invalid_cell` | Malformed H3 cell |
+| 401 | `unauthorized` | Missing or invalid API key |
+| 503 | `no_workers` | No eligible workers. Retry or remove jurisdiction constraint |
+| 504 | `job_timeout` | Job not completed within timeout |
