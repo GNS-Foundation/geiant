@@ -59,6 +59,10 @@ const ALLOWED_TOOLS = [
   'spatial_query',
   'trajectory_audit',
   'compliance_report',
+  'gns_get_compliance_report',
+  'gns_get_trust_score',
+  'gns_verify_chain',
+  'gns_roll_epoch',
 ];
 
 // ---- Main ----
@@ -87,7 +91,9 @@ function main() {
 
   // 2. Generate agent keypair
   console.log('\n🤖 Generating agent Ed25519 keypair...');
-  const agentKp = nacl.sign.keyPair();
+  const agentKp = process.env.AGENT_SK
+    ? nacl.sign.keyPair.fromSecretKey(hexToBytes(process.env.AGENT_SK))
+    : nacl.sign.keyPair();
   const agentPk = bytesToHex(agentKp.publicKey);
   const agentSk = bytesToHex(agentKp.secretKey);
 
