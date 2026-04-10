@@ -814,6 +814,138 @@ function buildServer(): McpServer {
     },
   );
 
+  // ── Governance Tools ────────────────────────────────────────────────────────
+  // Expose the /compliance and /epoch/roll HTTP endpoints as MCP tools
+  // so Claude Managed Agents can query governance state autonomously.
+  // BASE_URL points to the same Express process (self-referencing).
+
+  const GOV_BASE_URL = process.env.BASE_URL ?? `http://localhost:${PORT}`;
+
+  async function fetchInternal(path: string, opts?: RequestInit) {
+    const res = await fetch(`${GOV_BASE_URL}${path}`, opts);
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`GEIANT API ${path} → ${res.status}: ${body}`);
+    }
+    return res.json();
+  }
+
+  // ── gns_get_compliance_report ──────────────────────────────────────────────
+  srv.tool(
+    'gns_get_compliance_report',
+    'Generate a full EU AI Act compliance report (Art. 12 record-keeping + Art. 14 human oversight). ' +
+    'Returns chain verification, epoch Merkle roots, delegation certificate, trust score, and violation history. ' +
+    'Pass agent_pk to query a specific agent; omit for the server\'s own agent.',
+    {
+      agent_pk: z
+        .string()
+        .optional()
+        .describe('Ed25519 public key (64 hex chars) of the agent to query. Omit for own agent.'),
+      from: z
+        .string()
+        .optional()
+        .describe('ISO 8601 start of reporting period. Default: 2020-01-01T00:00:00Z'),
+      to: z
+        .string()
+        .optional()
+        .describe('ISO 8601 end of reporting period. Default: now'),
+    },
+    async ({ agent_pk, from, to }) => {
+      const params = new URLSearchParams();
+      if (from) params.set('from', from);
+      if (to)   params.set('to',   to);
+
+      const path = agent_pk
+        ? `/compliance/${agent_pk}?${params}`
+        : `/compliance?${params}`;
+
+      const report = await fetchInternal(path);
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(report, null, 2) }],
+      };
+    },
+  );
+
+  // ── gns_get_trust_score ────────────────────────────────────────────────────
+  srv.tool(
+    'gns_get_trust_score',
+    'Get the current TierGate trust tier and score for an agent. ' +
+    'Tiers: provisioned (0%) → observed (25%) → trusted (60%) → certified (85%) → sovereign (99%). ' +
+    'Omit agent_pk to query the server\'s own agent.',
+    {
+      agent_pk: z
+        .string()
+        .optional()
+        .describe('Ed25519 public key (64 hex chars). Omit for own agent.'),
+    },
+    async ({ agent_pk }) => {
+      const path = agent_pk ? `/compliance/${agent_pk}` : '/compliance';
+      const report = await fetchInternal(path);
+
+      const result = {
+        agent_pk:           report.agent_pk,
+        agent_handle:       report.agent_handle,
+        current_tier:       report.current_tier,
+        trust_score:        report.trust_score,
+        total_operations:   report.total_operations,
+        violations:         report.violations ?? [],
+        jurisdiction_cells: report.jurisdiction_cells ?? [],
+      };
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    },
+  );
+
+  // ── gns_verify_chain ───────────────────────────────────────────────────────
+  srv.tool(
+    'gns_verify_chain',
+    'Verify the cryptographic integrity of an agent\'s breadcrumb chain. ' +
+    'Returns { is_valid, block_count, issues[] } plus epoch Merkle roots. ' +
+    'A valid chain proves no audit records have been tampered with.',
+    {
+      agent_pk: z
+        .string()
+        .optional()
+        .describe('Ed25519 public key (64 hex chars). Omit for own agent.'),
+    },
+    async ({ agent_pk }) => {
+      const path = agent_pk ? `/compliance/${agent_pk}` : '/compliance';
+      const report = await fetchInternal(path);
+
+      const result = {
+        agent_pk:           report.agent_pk,
+        chain_verification: report.chain_verification,
+        epochs:             report.epochs ?? [],
+        reporting_period:   report.reporting_period,
+      };
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    },
+  );
+
+  // ── gns_roll_epoch ─────────────────────────────────────────────────────────
+  // ⚠️ Side-effecting: seals all pending breadcrumbs into a new epoch.
+  // Consider restricting to human-triggered sessions if needed.
+  srv.tool(
+    'gns_roll_epoch',
+    'Roll all pending breadcrumbs into a new sealed epoch with a Merkle root. ' +
+    'Returns { epoch_index, merkle_root, block_count, epoch_hash }. ' +
+    'Call this at the end of a session to produce a tamper-evident compliance snapshot.',
+    {},
+    async () => {
+      const result = await fetchInternal('/epoch/roll', { method: 'POST' });
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    },
+  );
+
   return srv;
 }
 
@@ -860,7 +992,10 @@ async function main() {
       audit_active: !!audit,
       agent_pk: audit?.agentPublicKey?.substring(0, 16) ?? null,
       chain_tip: audit?.chainTip?.index ?? null,
-      tools: ['perception_fetch_tile', 'perception_classify', 'perception_embed', 'perception_weather'],
+      tools: [
+        'perception_fetch_tile', 'perception_classify', 'perception_embed', 'perception_weather',
+        'gns_get_compliance_report', 'gns_get_trust_score', 'gns_verify_chain', 'gns_roll_epoch',
+      ],
     });
   });
 
