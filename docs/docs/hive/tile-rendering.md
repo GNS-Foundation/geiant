@@ -52,7 +52,7 @@ Every tile response includes Hive provenance headers:
 
 MobyDB is the cache. The composite key `(H3 Cell, Epoch, Style, Zoom)` IS the cache key.
 
-- **Cache hit:** serve from memory, <1ms, 0.00001 GNS
+- **Cache hit:** serve from memory, `<1ms`, 0.00001 GNS
 - **Cache miss:** proxy from upstream, cache locally, serve to requester, 0.0001 GNS
 - **Epoch invalidation:** tiles refresh when the epoch advances and source data has changed
 
