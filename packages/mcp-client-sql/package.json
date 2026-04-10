@@ -1,0 +1,54 @@
+{
+  "name": "@gns-foundation/mcp-client-sql",
+  "version": "0.1.0",
+  "description": "GEIANT governance wrapper for Microsoft SQL MCP Server (Data API builder)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types":  "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev":   "tsc --watch",
+    "test":  "node --experimental-vm-modules node_modules/.bin/jest"
+  },
+  "dependencies": {
+    "@gns-aip/sdk":                    "^0.1.0",
+    "@langchain/core":                 "^0.3.0",
+    "@modelcontextprotocol/sdk":       "^1.0.0",
+    "h3-js":                           "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node":  "^20.0.0",
+    "typescript":   "^5.4.0",
+    "jest":         "^29.0.0",
+    "@types/jest":  "^29.0.0"
+  },
+  "peerDependencies": {
+    "@langchain/core": ">=0.3.0"
+  },
+  "keywords": [
+    "geiant",
+    "gns",
+    "mcp",
+    "microsoft",
+    "sql",
+    "agent-governance",
+    "eu-ai-act",
+    "langchain"
+  ],
+  "repository": {
+    "type": "git",
+    "url":  "https://github.com/GNS-Foundation/geiant.git",
+    "directory": "packages/mcp-client-sql"
+  }
+}
