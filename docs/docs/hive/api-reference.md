@@ -36,7 +36,7 @@ MapLibre GL JS and flutter_map compatible. No API key required.
 
 → [Full documentation](/hive/tile-rendering)
 
-### GET /v1/tiles/{h3_cell}/{zoom}/{style}.{format}
+### GET /v1/tiles/\{h3_cell\}/\{zoom\}/\{style\}.\{format\}
 
 Serve a map tile. Styles: `osm-bright`, `dark`, `satellite`, `terrain`, `osm-standard`.
 
@@ -44,7 +44,7 @@ Serve a map tile. Styles: `osm-bright`, `dark`, `satellite`, `terrain`, `osm-sta
 curl -o tile.png https://gns-browser-production.up.railway.app/v1/tiles/871e9a0ecffffff/15/osm-bright.png
 ```
 
-### GET /v1/tiles/grid/{cell}/{zoom}/{style}?rings=1
+### GET /v1/tiles/grid/\{cell\}/\{zoom\}/\{style\}?rings=1
 
 JSON grid of tile URLs for a cell and surrounding rings.
 
@@ -64,7 +64,7 @@ Sentinel-2 L2A via Element84 Earth Search. Free, no API key.
 
 Search recent Sentinel-2 scenes.
 
-### GET /v1/imagery/ndvi?cell={h3}&from={date}&to={date}
+### GET /v1/imagery/ndvi?cell=\{h3\}\&from=\{date\}\&to=\{date\}
 
 Calculate NDVI for an H3 cell.
 
@@ -90,11 +90,11 @@ Workers push local records to central storage.
 
 Workers push epoch seals.
 
-### GET /mobydb/query?cell={h3}&epoch_start={n}&epoch_end={n}&collection={type}&limit={n}
+### GET /mobydb/query?cell=\{h3\}\&epoch_start=\{n\}\&epoch_end=\{n\}\&collection=\{type\}\&limit=\{n\}
 
 Query records across all workers.
 
-### GET /mobydb/proof/{record_id}
+### GET /mobydb/proof/\{record_id\}
 
 Verify a record's Merkle proof. Returns record, epoch seal, and verification status.
 
