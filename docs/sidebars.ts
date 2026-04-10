@@ -20,6 +20,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'integrations/langchain',
         'integrations/mcp-server',
+        'integrations/microsoft-sql-mcp',
       ],
     },
     {
