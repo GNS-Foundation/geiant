@@ -21,6 +21,7 @@ const sidebars: SidebarsConfig = {
         'integrations/langchain',
         'integrations/mcp-server',
         'integrations/microsoft-sql-mcp',
+        'integrations/claude-managed-agents',
       ],
     },
     {
