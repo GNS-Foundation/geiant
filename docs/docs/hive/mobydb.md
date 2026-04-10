@@ -139,7 +139,7 @@ Returns the record, epoch seal, and verification status.
 
 ## Storage
 
-**Worker (embedded):** SQLite at `~/.hive/mobydb/records.db` (WAL mode, <0.1ms writes)
+**Worker (embedded):** SQLite at `~/.hive/mobydb/records.db` (WAL mode, `<0.1ms` writes)
 
 **Central (synced):** Supabase PostgreSQL tables `hive_mobydb_records` + `hive_epoch_seals`
 

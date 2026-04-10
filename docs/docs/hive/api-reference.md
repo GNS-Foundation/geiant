@@ -60,7 +60,7 @@ Sentinel-2 L2A via Element84 Earth Search. Free, no API key.
 
 → [Full documentation](/hive/satellite-imagery)
 
-### GET /v1/imagery/scenes?cell={h3}&from={date}&to={date}&cloud={%}&limit={n}
+### GET /v1/imagery/scenes?cell=\{h3\}&from=\{date\}&to=\{date\}&cloud=\{%\}&limit=\{n\}
 
 Search recent Sentinel-2 scenes.
 
