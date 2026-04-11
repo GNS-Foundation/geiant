@@ -56,7 +56,7 @@ function normalizeCert(raw: Record<string, unknown>): DelegationCert {
     maxSubDelegationDepth:  (raw.maxSubDelegationDepth ?? raw.max_depth ?? 0) as number,
     validFrom:              (raw.validFrom ?? raw.not_before ?? '') as string,
     validUntil:             (raw.validUntil ?? raw.not_after ?? '') as string,
-    principalSignature:     (raw.principalSignature ?? raw.signature ?? '') as string,
+    principalSignature:     (raw.principalSignature ?? raw.principal_signature ?? raw.signature ?? '') as string,
     certHash:               (raw.certHash ?? raw.cert_hash ?? '') as string,
   };
 }
