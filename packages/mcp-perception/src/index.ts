@@ -27,8 +27,8 @@
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import express from 'express';
 import { z } from 'zod';
 import { cellToBoundary, getResolution, latLngToCell } from 'h3-js';
@@ -398,7 +398,7 @@ async function classifyTile(params: {
       throw new Error(`RunPod endpoint HTTP ${endpointRes.status}: ${errText}`);
     }
 
-    const initialResult = await endpointRes.json();
+    const initialResult = await endpointRes.json() as any;
     const jobId = initialResult.id;
 
     if (!jobId) {
@@ -421,7 +421,7 @@ async function classifyTile(params: {
         throw new Error(`RunPod status HTTP ${statusRes.status}`);
       }
 
-      const statusData = await statusRes.json();
+      const statusData = await statusRes.json() as any;
 
       if (statusData.status === 'COMPLETED') {
         runpodResult = statusData;
@@ -828,7 +828,7 @@ function buildServer(): McpServer {
       const body = await res.text();
       throw new Error(`GEIANT API ${path} → ${res.status}: ${body}`);
     }
-    return res.json();
+    return res.json() as Promise<any>;
   }
 
   // ── gns_get_compliance_report ──────────────────────────────────────────────
