@@ -61,18 +61,18 @@ function normalizeCert(raw: Record<string, unknown>): DelegationCert {
 
 /** Build the shape that delegationCertPayload expects + call verify with 3 args */
 function verifyCert(cert: DelegationCert): boolean {
-  const payload = {
-    agentPublicKey:        cert.agentIdentity,
-    scopeCells:            cert.territoryCells,
-    scopeFacets:           cert.facetPermissions,
-    validFrom:             cert.validFrom,
-    validUntil:            cert.validUntil,
-    maxSubdelegationDepth: cert.maxSubDelegationDepth,
-  };
+  // Fix odd-length hex for signature
   const sig = cert.principalSignature.length % 2 === 1
-    ? '0' + cert.principalSignature   // fix odd-length hex
+    ? '0' + cert.principalSignature   
     : cert.principalSignature;
-  return (verifyDelegationCert as any)(payload, sig, cert.principalIdentity);
+
+  // Pass a cloned object with the fixed signature back to the SDK
+  const fixedCert = {
+    ...cert,
+    principalSignature: sig
+  };
+  
+  return verifyDelegationCert(fixedCert);
 }
 
 function loadDelegationCert(): void {
