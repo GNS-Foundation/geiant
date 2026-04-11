@@ -28,6 +28,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
 import { z } from 'zod';
 import { cellToBoundary, getResolution, latLngToCell } from 'h3-js';
@@ -1094,10 +1095,63 @@ async function main() {
     transport.handlePostMessage(req, res);
   });
 
+  // Streamable HTTP transport for goose + modern MCP clients
+  const streamableSessions = new Map<string, StreamableHTTPServerTransport>();
+
+  app.post('/mcp', async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+
+    if (sessionId && streamableSessions.has(sessionId)) {
+      // Existing session
+      const transport = streamableSessions.get(sessionId)!;
+      await transport.handleRequest(req, res);
+      return;
+    }
+
+    // New session
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (id) => {
+        streamableSessions.set(id, transport);
+      },
+    });
+
+    transport.onclose = () => {
+      const id = transport.sessionId;
+      if (id) streamableSessions.delete(id);
+    };
+
+    const server = buildServer();
+    await server.connect(transport);
+    await transport.handleRequest(req, res);
+  });
+
+  app.get('/mcp', async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    if (!sessionId || !streamableSessions.has(sessionId)) {
+      res.status(400).json({ error: 'Invalid or missing session ID' });
+      return;
+    }
+    const transport = streamableSessions.get(sessionId)!;
+    await transport.handleRequest(req, res);
+  });
+
+  app.delete('/mcp', async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    if (sessionId && streamableSessions.has(sessionId)) {
+      const transport = streamableSessions.get(sessionId)!;
+      await transport.handleRequest(req, res);
+      streamableSessions.delete(sessionId);
+    } else {
+      res.status(404).json({ error: 'Session not found' });
+    }
+  });
+
   app.listen(PORT, '0.0.0.0', () => {
     console.error(`✅  mcp-perception listening on port ${PORT}`);
     console.error(`   SSE:     GET  http://0.0.0.0:${PORT}/sse`);
     console.error(`   Message: POST http://0.0.0.0:${PORT}/message`);
+    console.error(`   MCP:     POST http://0.0.0.0:${PORT}/mcp`);
     console.error(`   Health:  GET  http://0.0.0.0:${PORT}/health`);
   });
 }
