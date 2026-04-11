@@ -23,6 +23,7 @@ const sidebars: SidebarsConfig = {
         'integrations/microsoft-sql-mcp',
         'integrations/claude-managed-agents',
         'integrations/goose',
+        'integrations/aws-agentcore',
       ],
     },
     {
