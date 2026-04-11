@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.geiant/mcp-perception",
+  "title": "GEIANT — Geospatial AI Governance Runtime",
+  "description": "EU AI Act compliance for AI agents. Audit trail, delegation certs, and geospatial AI inference.",
+  "repository": {
+    "url": "https://github.com/GNS-Foundation/geiant",
+    "source": "github"
+  },
+  "version": "0.3.2",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://packagesmcp-perception-production.up.railway.app/mcp"
+    }
+  ]
+}
