@@ -24,6 +24,7 @@ import {
   isDelegationAuthorizedForCell,
   isDelegationAuthorizedForFacet,
   verifyDelegationCert,
+  verify as ed25519Verify,
 } from '@gns-aip/sdk';
 import type { DelegationCert } from '@gns-aip/sdk';
 
@@ -61,18 +62,22 @@ function normalizeCert(raw: Record<string, unknown>): DelegationCert {
 
 /** Build the shape that delegationCertPayload expects + call verify with 3 args */
 function verifyCert(cert: DelegationCert): boolean {
-  // Fix odd-length hex for signature
-  const sig = cert.principalSignature.length % 2 === 1
-    ? '0' + cert.principalSignature   
-    : cert.principalSignature;
-
-  // Pass a cloned object with the fixed signature back to the SDK
-  const fixedCert = {
-    ...cert,
-    principalSignature: sig
-  };
-  
-  return verifyDelegationCert(fixedCert);
+  try {
+    const payload = JSON.stringify({
+      agentPublicKey:        cert.agentIdentity,
+      maxSubdelegationDepth: cert.maxSubDelegationDepth,
+      scopeCells:            [...cert.territoryCells].sort(),
+      scopeFacets:           [...cert.facetPermissions].sort(),
+      validFrom:             cert.validFrom,
+      validUntil:            cert.validUntil,
+    });
+    const sig = cert.principalSignature.length % 2 === 1
+      ? '0' + cert.principalSignature
+      : cert.principalSignature;
+    return ed25519Verify(cert.principalIdentity, payload, sig);
+  } catch {
+    return false;
+  }
 }
 
 function loadDelegationCert(): void {
