@@ -80,7 +80,7 @@ function verifyCert(cert: DelegationCert): boolean {
   } catch {
     return false;
   }
-}}
+}
 
 function loadDelegationCert(): void {
   if (!DELEGATION_CERT_JSON) {
