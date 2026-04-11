@@ -59,6 +59,22 @@ function normalizeCert(raw: Record<string, unknown>): DelegationCert {
   };
 }
 
+/** Build the shape that delegationCertPayload expects + call verify with 3 args */
+function verifyCert(cert: DelegationCert): boolean {
+  const payload = {
+    agentPublicKey:        cert.agentIdentity,
+    scopeCells:            cert.territoryCells,
+    scopeFacets:           cert.facetPermissions,
+    validFrom:             cert.validFrom,
+    validUntil:            cert.validUntil,
+    maxSubdelegationDepth: cert.maxSubDelegationDepth,
+  };
+  const sig = cert.principalSignature.length % 2 === 1
+    ? '0' + cert.principalSignature   // fix odd-length hex
+    : cert.principalSignature;
+  return (verifyDelegationCert as any)(payload, sig, cert.principalIdentity);
+}
+
 function loadDelegationCert(): void {
   if (!DELEGATION_CERT_JSON) {
     console.warn('⚠️  GEIANT_DELEGATION_CERT not set — jurisdiction checks will be limited');
@@ -68,7 +84,7 @@ function loadDelegationCert(): void {
     const raw = JSON.parse(DELEGATION_CERT_JSON) as Record<string, unknown>;
     delegationCert = normalizeCert(raw);
     let valid = false;
-    try { valid = verifyDelegationCert(delegationCert); } catch(_e) { valid = true; /* cert was verified at creation */ }
+    try { valid = verifyCert(delegationCert); } catch(_e) { valid = true; /* cert was verified at creation */ }
     const active = isDelegationActive(delegationCert);
     console.log(`📜 Delegation cert loaded`);
     console.log(`   Agent:     ${delegationCert.agentIdentity.slice(0, 16)}...`);
@@ -146,7 +162,7 @@ function buildServer(): McpServer {
         };
       }
 
-      const sigValid  = verifyDelegationCert(delegationCert);
+      const sigValid  = verifyCert(delegationCert);
       const isActive  = isDelegationActive(delegationCert);
       const cellOk    = delegationCert.territoryCells.includes(h3_cell);
       const facetOk   = facet ? delegationCert.facetPermissions.includes(facet) : true;
@@ -281,7 +297,7 @@ function buildServer(): McpServer {
         };
       }
 
-      const sigValid = verifyDelegationCert(delegationCert);
+      const sigValid = verifyCert(delegationCert);
       const isActive = isDelegationActive(delegationCert);
 
       // Check tool whitelist (constraints.allowed_tools)
