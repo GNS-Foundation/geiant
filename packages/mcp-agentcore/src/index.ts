@@ -24,7 +24,7 @@ import {
   isDelegationAuthorizedForCell,
   isDelegationAuthorizedForFacet,
   verifyDelegationCert,
-  verify as ed25519Verify,
+  verify as ed25519Verify, canonicalJson,
 } from '@gns-aip/sdk';
 import type { DelegationCert } from '@gns-aip/sdk';
 
@@ -38,6 +38,7 @@ const DELEGATION_CERT_JSON = process.env.GEIANT_DELEGATION_CERT ?? '';
 // ── Delegation cert (loaded once at startup) ──────────────────────────────────
 
 let delegationCert: DelegationCert | null = null;
+let rawCertJson: Record<string, unknown> | null = null;
 
 /**
  * Normalize a cert JSON that may use snake_case field names
@@ -62,23 +63,24 @@ function normalizeCert(raw: Record<string, unknown>): DelegationCert {
 
 /** Build the shape that delegationCertPayload expects + call verify with 3 args */
 function verifyCert(cert: DelegationCert): boolean {
+  if (!rawCertJson) return false;
   try {
-    const payload = JSON.stringify({
-      agentPublicKey:        cert.agentIdentity,
-      maxSubdelegationDepth: cert.maxSubDelegationDepth,
-      scopeCells:            [...cert.territoryCells].sort(),
-      scopeFacets:           [...cert.facetPermissions].sort(),
-      validFrom:             cert.validFrom,
-      validUntil:            cert.validUntil,
+    const payload = canonicalJson({
+      version: rawCertJson.version,
+      agent_pk: rawCertJson.agent_pk,
+      principal_pk: rawCertJson.principal_pk,
+      h3_cells: rawCertJson.h3_cells,
+      facets: rawCertJson.facets,
+      not_before: rawCertJson.not_before,
+      not_after: rawCertJson.not_after,
+      max_depth: rawCertJson.max_depth,
+      constraints: rawCertJson.constraints ?? null,
     });
-    const sig = cert.principalSignature.length % 2 === 1
-      ? '0' + cert.principalSignature
-      : cert.principalSignature;
-    return ed25519Verify(cert.principalIdentity, payload, sig);
+    return ed25519Verify(cert.principalIdentity, payload, cert.principalSignature);
   } catch {
     return false;
   }
-}
+}}
 
 function loadDelegationCert(): void {
   if (!DELEGATION_CERT_JSON) {
@@ -87,6 +89,7 @@ function loadDelegationCert(): void {
   }
   try {
     const raw = JSON.parse(DELEGATION_CERT_JSON) as Record<string, unknown>;
+    rawCertJson = raw;
     delegationCert = normalizeCert(raw);
     let valid = false;
     try { valid = verifyCert(delegationCert); } catch(_e) { valid = true; /* cert was verified at creation */ }
