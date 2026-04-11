@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.geiant/mcp-perception",
+  "description": "Geospatial AI MCP server — satellite imagery, embeddings, weather, GNS governance",
+  "version": "0.3.3",
+  "repository": {
+    "url": "https://github.com/GNS-Foundation/geiant",
+    "source": "github",
+    "subfolder": "packages/mcp-perception"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://packagesmcp-perception-production.up.railway.app/mcp"
+    }
+  ]
+}
