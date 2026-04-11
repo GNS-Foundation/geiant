@@ -1,0 +1,23 @@
+{
+  "name": "@geiant/mcp-agentcore",
+  "version": "0.1.0",
+  "description": "GEIANT governance MCP server for AWS AgentCore Runtime",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@gns-aip/sdk": "^0.1.1",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "express": "^4.18.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0"
+  }
+}

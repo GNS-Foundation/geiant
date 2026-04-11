@@ -1,0 +1,10 @@
+{
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "npm install -g pnpm@9.15.9 && pnpm install --no-frozen-lockfile && pnpm build"
+  },
+  "deploy": {
+    "startCommand": "node packages/mcp-agentcore/dist/index.js",
+    "healthcheckPath": "/health"
+  }
+}
