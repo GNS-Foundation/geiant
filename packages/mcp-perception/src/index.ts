@@ -832,42 +832,7 @@ function buildServer(): McpServer {
     return res.json() as Promise<any>;
   }
 
-  // ── gns_get_compliance_report ──────────────────────────────────────────────
-  srv.tool(
-    'gns_get_compliance_report',
-    'Generate a full EU AI Act compliance report (Art. 12 record-keeping + Art. 14 human oversight). ' +
-    'Returns chain verification, epoch Merkle roots, delegation certificate, trust score, and violation history. ' +
-    'Pass agent_pk to query a specific agent; omit for the server\'s own agent.',
-    {
-      agent_pk: z
-        .string()
-        .optional()
-        .describe('Ed25519 public key (64 hex chars) of the agent to query. Omit for own agent.'),
-      from: z
-        .string()
-        .optional()
-        .describe('ISO 8601 start of reporting period. Default: 2020-01-01T00:00:00Z'),
-      to: z
-        .string()
-        .optional()
-        .describe('ISO 8601 end of reporting period. Default: now'),
-    },
-    async ({ agent_pk, from, to }) => {
-      const params = new URLSearchParams();
-      if (from) params.set('from', from);
-      if (to)   params.set('to',   to);
-
-      const path = agent_pk
-        ? `/compliance/${agent_pk}?${params}`
-        : `/compliance?${params}`;
-
-      const report = await fetchInternal(path);
-
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(report, null, 2) }],
-      };
-    },
-  );
+  // ── gns_get_compliance_report (now handled by compliance-dashboard App) ────
 
   // ── gns_get_trust_score ────────────────────────────────────────────────────
   srv.tool(
