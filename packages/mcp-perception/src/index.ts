@@ -41,7 +41,7 @@ import { createHash, randomUUID } from 'crypto';
 
 import { AuditEngine } from '@geiant/mcp-audit/middleware';
 // @ts-ignore -- imported from a different rootDir
-// import { registerComplianceDashboard } from '../apps/compliance-dashboard/server.js';
+import { registerComplianceDashboard } from '../apps/compliance-dashboard/server.js';
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -834,41 +834,7 @@ function buildServer(): McpServer {
 
   // ── gns_get_compliance_report (now handled by compliance-dashboard App) ────
 
-  // ── gns_get_compliance_report (MCP App — inline registration) ──────────
-  const complianceResourceUri = 'ui://geiant/compliance-dashboard.html';
-
-  srv.tool(
-    'gns_get_compliance_report',
-    'Returns a full EU AI Act compliance report for a GNS agent, ' +
-    'including trust score, chain verification, Merkle epoch proofs, ' +
-    'delegation certificate, and regulatory status. ' +
-    'Renders as an interactive dashboard in supported hosts.',
-    {
-      agent_pk: z.string().optional().describe('Ed25519 public key (64 hex chars). Omit for own agent.'),
-    },
-    async ({ agent_pk }) => {
-      const path = agent_pk ? `/compliance/${agent_pk}` : '/compliance';
-      const report = await fetchInternal(path);
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(report, null, 2) }],
-      };
-    },
-  );
-
-  // srv.resource(
-  // 'compliance-dashboard',
-  // complianceResourceUri,
-  // { mimeType: 'text/html;profile=mcp-app' },
-  // async () => {
-  // const fs = await import('node:fs/promises');
-  // const path = await import('node:path');
-  // const html = await fs.readFile(
-  // path.join(import.meta.dirname, '..', 'apps', 'compliance-dashboard', 'dist', 'mcp-app.html'),
-  // 'utf8',
-  // );
-  // return { contents: [{ uri: complianceResourceUri, mimeType: 'text/html;profile=mcp-app', text: html }] };
-  // },
-  // );
+  // ── gns_get_compliance_report (now handled by compliance-dashboard App) ────
 
   // ── gns_get_trust_score ────────────────────────────────────────────────────
   srv.tool(
@@ -949,7 +915,7 @@ function buildServer(): McpServer {
     },
   );
 
-//   registerComplianceDashboard(srv);
+  registerComplianceDashboard(srv);
 
   return srv;
 }
