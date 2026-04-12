@@ -855,20 +855,20 @@ function buildServer(): McpServer {
     },
   );
 
-  srv.resource(
-    'compliance-dashboard',
-    complianceResourceUri,
-    { mimeType: 'text/html;profile=mcp-app' },
-    async () => {
-      const fs = await import('node:fs/promises');
-      const path = await import('node:path');
-      const html = await fs.readFile(
-        path.join(import.meta.dirname, '..', 'apps', 'compliance-dashboard', 'dist', 'mcp-app.html'),
-        'utf8',
-      );
-      return { contents: [{ uri: complianceResourceUri, mimeType: 'text/html;profile=mcp-app', text: html }] };
-    },
-  );
+  // srv.resource(
+  // 'compliance-dashboard',
+  // complianceResourceUri,
+  // { mimeType: 'text/html;profile=mcp-app' },
+  // async () => {
+  // const fs = await import('node:fs/promises');
+  // const path = await import('node:path');
+  // const html = await fs.readFile(
+  // path.join(import.meta.dirname, '..', 'apps', 'compliance-dashboard', 'dist', 'mcp-app.html'),
+  // 'utf8',
+  // );
+  // return { contents: [{ uri: complianceResourceUri, mimeType: 'text/html;profile=mcp-app', text: html }] };
+  // },
+  // );
 
   // ── gns_get_trust_score ────────────────────────────────────────────────────
   srv.tool(
