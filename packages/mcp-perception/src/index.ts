@@ -40,7 +40,8 @@ import { createHash, randomUUID } from 'crypto';
 // ---------------------------------------------------------------------------
 
 import { AuditEngine } from '@geiant/mcp-audit/middleware';
-
+// @ts-ignore -- imported from a different rootDir
+import { registerComplianceDashboard } from '../apps/compliance-dashboard/server.js';
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -946,6 +947,8 @@ function buildServer(): McpServer {
       };
     },
   );
+
+  registerComplianceDashboard(srv);
 
   return srv;
 }
