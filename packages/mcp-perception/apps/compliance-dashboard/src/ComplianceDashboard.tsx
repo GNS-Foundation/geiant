@@ -166,15 +166,17 @@ export function ComplianceDashboard({ mockReport }: Props) {
   const [pdfRequested, setPdfRequested] = useState(false);
 
   const exportPdf = useCallback(async () => {
-    // Sandboxed iframe blocks window.print — ask Claude to generate the PDF instead
+    // Sandboxed iframe blocks window.print — ask Claude to generate the PDF via sendMessage
     try {
-      await app?.updateModelContext({
+      await app?.sendMessage({
         content: [{ type: 'text', text:
-          'User clicked "Export PDF" on the compliance dashboard. ' +
           'Please generate a professional PDF compliance report for ' +
-          r.agent.handle + ' using the compliance data already returned by the tool. ' +
-          'Include all sections: trust score, chain verification, epochs, ' +
-          'delegation certificate, and regulatory status.'
+          r.agent.handle + ' using the compliance data from the dashboard above. ' +
+          'Include all sections: trust score (' + r.trustScore.score.toFixed(2) + '%), ' +
+          'chain verification (' + r.chain.blockCount + ' blocks, ' + r.chain.issues + ' issues), ' +
+          'epochs, delegation certificate (territory: ' + r.delegation.territory + '), ' +
+          'and regulatory status (all ' + r.regulatory.articles.length + ' articles compliant). ' +
+          'Use GEIANT branding: dark theme, DM Sans + Space Mono fonts, cyan #0099cc accent.'
         }],
       });
       setPdfRequested(true);
