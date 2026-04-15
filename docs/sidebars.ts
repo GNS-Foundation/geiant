@@ -24,6 +24,7 @@ const sidebars: SidebarsConfig = {
         'integrations/claude-managed-agents',
         'integrations/goose',
         'integrations/aws-agentcore',
+        'integrations/authzen-coaz',
       ],
     },
     {
