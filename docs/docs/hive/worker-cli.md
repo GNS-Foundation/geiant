@@ -1,5 +1,5 @@
 ---
-sidebar_position: 4
+sidebar_position: 8
 title: Worker CLI
 ---
 
@@ -19,6 +19,10 @@ hive-worker <command>
 ```
 
 **Requirements:** Node.js ≥ 18.
+
+**Current published version:** `@gns-foundation/hive-worker@0.5.2`.
+
+> **Cosmetic note:** the worker dashboard currently displays `v0.1.1` regardless of the installed npm version. This is a known cosmetic bug in the heartbeat payload construction; the actual installed and operational version is reported correctly in npm metadata and in the `swarm_nodes` registry after the v0.6 fix lands. See [Roadmap §12.2](/hive/roadmap).
 
 ## Commands
 
@@ -131,6 +135,8 @@ hive-worker models fetch <model-id>
 
 | Model ID | Size | Description |
 |----------|------|-------------|
+| `lfm2.5-1.2b-instruct` | ~750 MB | **Production default.** Liquid AI LFM2.5 1.2B Instruct Q4_K_M. LTC architecture, ChatML template, 180–240 tok/s on M-series Macs. |
+| `lfm2.5-1.2b-thinking` | ~750 MB | Liquid AI variant tuned for chain-of-thought reasoning. ChatML template. |
 | `tinyllama` | ~635 MB | TinyLlama 1.1B Chat Q4_K_M. Fast, good for testing. |
 | `phi-3-mini` | ~2.3 GB | Microsoft Phi-3-mini 4k instruct Q4. Good quality/speed balance. |
 | `gemma-2-2b` | ~1.6 GB | Google Gemma-2 2B IT Q4_K_M. |
@@ -138,10 +144,12 @@ hive-worker models fetch <model-id>
 **Example:**
 
 ```bash
-hive-worker models fetch tinyllama
-# Downloading... 100% (635 / 638 MB)
-# ✓ Saved to /Users/you/.hive/models/tinyllama.gguf
+hive-worker models fetch lfm2.5-1.2b-instruct
+# Downloading... 100% (748 / 750 MB)
+# ✓ Saved to /Users/you/.hive/models/lfm2.5-1.2b-instruct.gguf
 ```
+
+> **Cold-start note:** On a fresh worker the first LFM2.5 inference may take up to ~126 seconds because the model has to be loaded into RAM before the first token. Subsequent inferences are warm. LFM2.5 pre-warming on container start is on the v0.6 roadmap.
 
 ## Identity file
 
@@ -157,6 +165,8 @@ The keypair is stored at `~/.hive/identity.json` with file mode 600 (owner read/
 
 The `pk` is your Ed25519 public key (64 hex chars = 32 bytes). This is also your GNS identity and the source address for your Stellar wallet. The `sk` (secret key) never leaves your machine.
 
+Three identity paths are supported, in priority order: the `HIVE_IDENTITY_JSON` environment variable, the `HIVE_CALLER_PK` environment variable, or the auto-generated `~/.hive/identity.json` file.
+
 ## llama-completion binary
 
 The worker uses `llama-completion` (not `llama-cli`) for inference. This binary runs in batch mode — it writes the completion to stdout and exits cleanly without the interactive UI banner.
@@ -171,7 +181,7 @@ llama-completion  (in PATH)
 llama-cli  (fallback)
 ```
 
-To install llama.cpp with the completion binary:
+To install llama.cpp with the completion binary (reference build `b6709`):
 
 ```bash
 git clone --depth 1 https://github.com/ggerganov/llama.cpp
@@ -196,9 +206,11 @@ The live dashboard shows:
 › [10:57:16] Job poller started — polling every 5s
 ♥ Heartbeat #1 · uptime 31s
 ◉ COMPUTING  10:57:36 AM
-› Job claimed: 800ff8e0 · model=tinyllama · 60 tokens
+› Job claimed: 800ff8e0 · model=lfm2.5-1.2b-instruct · 60 tokens
 ● IDLE  10:57:38 AM
 ✦ Earned: 0.0780 GNS
 ```
+
+(The displayed `v0.1.1` is the cosmetic-bug version string mentioned above; the actual installed version is reported correctly in `npm ls @gns-foundation/hive-worker`.)
 
 The dashboard uses a simple line-logger (no ANSI cursor movement) — safe to run over SSH.

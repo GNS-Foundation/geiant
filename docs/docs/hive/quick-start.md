@@ -50,14 +50,17 @@ The RPC server enables future pipeline/shard mode across multiple devices. For s
 To execute inference jobs (and earn GNS), you need at least one model cached locally:
 
 ```bash
-# TinyLlama — 635 MB, good for testing
+# LFM2.5-1.2b-instruct — ~750 MB, the production default (Liquid AI, LTC architecture)
+npx @gns-foundation/hive-worker models fetch lfm2.5-1.2b-instruct
+
+# TinyLlama — 635 MB, fastest, good for testing
 npx @gns-foundation/hive-worker models fetch tinyllama
 
 # Phi-3-mini — 2.3 GB, better quality
 npx @gns-foundation/hive-worker models fetch phi-3-mini
 ```
 
-Models are stored at `~/.hive/models/`.
+Models are stored at `~/.hive/models/`. Production traffic from `@ai` and `@hai` defaults to **LFM2.5-1.2b-instruct** unless the request specifies a different model. TinyLlama remains in the registry for testing and as a low-resource fallback.
 
 ## 5. Submit a test job
 
@@ -67,7 +70,7 @@ While your worker is running, submit a job from another terminal or directly via
 INSERT INTO hive_jobs (h3_cell, model_id, prompt, max_tokens, gns_reward, submitter_pk)
 VALUES (
   '861e8050fffffff',       -- your H3 cell (shown in worker dashboard)
-  'tinyllama',
+  'lfm2.5-1.2b-instruct',
   'What is decentralized AI inference? Answer in one sentence.',
   60,
   0.01,
@@ -79,10 +82,12 @@ Within 5 seconds your worker will claim it, execute it, and post the result back
 
 ```
 ◉ COMPUTING
-› Job claimed: xxxxxxxx · model=tinyllama · 60 tokens
+› Job claimed: xxxxxxxx · model=lfm2.5-1.2b-instruct · 60 tokens
 ● IDLE
 ✦ Earned: 0.0060 GNS
 ```
+
+> **Cold-start note.** On a fresh worker the first LFM2.5 inference may take up to ~126 seconds because the model has to be loaded into RAM before the first token. Subsequent inferences are warm and run at ~180–240 tok/s. LFM2.5 pre-warming on container start is on the v0.6 roadmap.
 
 ## 6. Check your balance
 
@@ -110,7 +115,7 @@ curl -X POST https://hive.geiant.com/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
-    "model": "tinyllama",
+    "model": "lfm2.5-1.2b-instruct",
     "messages": [{"role": "user", "content": "What is H3?"}],
     "max_tokens": 60
   }'
@@ -122,4 +127,5 @@ See the [API Reference](./api-reference) for the full endpoint documentation.
 
 - [Worker CLI reference](./worker-cli) — all commands and flags
 - [H3 Resolution reference](./h3-resolution) — understand cell sizing and latency budgets
+- [Unified Compute API](./unified-compute) — DAG composition for multi-step jobs
 - [API reference](./api-reference) — submit jobs programmatically

@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 4
 ---
 
 # Tile Rendering
@@ -35,18 +35,33 @@ curl -o sat.png https://gns-browser-production.up.railway.app/v1/tiles/871e9a0ec
 | `terrain` | Stadia/Stamen | No |
 | `satellite` | ESRI World Imagery | No |
 
-### Response headers
+### Response headers — the on-the-wire audit chain
 
-Every tile response includes Hive provenance headers:
+Every tile response includes Hive provenance headers, exposed via CORS so any browser or dapp can read them without server-side cooperation:
 
 | Header | Description |
 |--------|-------------|
 | `X-Hive-Worker` | Worker public key or `tile-proxy` |
 | `X-Hive-Cell` | H3 cell of the computation |
-| `X-Hive-Epoch` | GNS epoch number |
+| `X-Hive-Epoch` | MobyDB epoch number |
 | `X-Hive-Proof` | SHA-256 hash of the tile data |
 | `X-Hive-Cache` | `HIT` or `MISS` |
 | `X-Hive-Cost` | Cost in GNS (0.00001 hit, 0.0001 miss) |
+
+The `X-Hive-Epoch` and `X-Hive-Proof` headers are the on-the-wire view of the [MobyDB audit chain](/hive/mobydb). A regulator, auditor, or any third party can verify that a tile was produced within a specific epoch and that its proof matches the epoch's Merkle root, without trusting any operator.
+
+```bash
+$ curl -I https://gns-browser-production.up.railway.app/v1/tiles/861e8050fffffff/8/satellite.png
+HTTP/2 200
+content-type: image/jpeg
+cache-control: public, max-age=3600
+x-hive-cell:    861e8050fffffff
+x-hive-epoch:   3253
+x-hive-proof:   394fb61956f409e7bb4bb06d607f7c60289fef5bcdddcb653c1cafca29931ea9
+x-hive-worker:  tile-proxy
+x-hive-cost:    0.0001
+x-hive-cache:   MISS
+```
 
 ## Cache strategy
 

@@ -1,5 +1,5 @@
 ---
-sidebar_position: 6
+sidebar_position: 9
 ---
 
 # API Reference
@@ -17,8 +17,11 @@ Submit a compute job with one or more steps.
 ```bash
 curl -X POST https://gns-browser-production.up.railway.app/v1/compute \
   -H "Content-Type: application/json" \
+  -H "X-GNS-Signature: <ed25519 signature>" \
   -d '{"requester_pk":"YOUR_PK","h3_cell":"871e9a0ecffffff","steps":[{"id":"ask","type":"inference","messages":[{"role":"user","content":"Hello"}]}]}'
 ```
+
+> The `X-GNS-Signature` header is enforced by **Gate 1 (signature verification)** of the four router gates at request entry. A request without a valid signature returns `{"error":"signature_required"}` before any compute is dispatched.
 
 ### GET /v1/compute/:jobId
 
@@ -56,7 +59,7 @@ Hourly tile serving statistics.
 
 ## Satellite Imagery
 
-Sentinel-2 L2A via Element84 Earth Search. Free, no API key.
+Sentinel-2 L2A via Element84 Earth Search. Free, no API key. IBM Prithvi-EO-2.0 callable via MCP for pixel-level analysis.
 
 → [Full documentation](/hive/satellite-imagery)
 
@@ -129,7 +132,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="phi-3-mini",
+    model="lfm2.5-1.2b-instruct",  # production default; swap to phi-3-mini, tinyllama, gemma-2-2b as needed
     messages=[{"role": "user", "content": "Hello"}],
 )
 ```
@@ -140,9 +143,21 @@ List available models in the swarm.
 
 ---
 
+## Audit & provenance
+
+Every Hive response carries audit-chain metadata that is independently verifiable against the [MobyDB](/hive/mobydb) epoch chain. The on-the-wire view is the set of CORS-exposed response headers on tile and imagery responses (`X-Hive-Epoch`, `X-Hive-Proof`, `X-Hive-Cell`, `X-Hive-Worker`, `X-Hive-Cache`, `X-Hive-Cost`), and the `proof.job_hash` / `proof.verify_url` fields on Unified Compute responses.
+
+The breadcrumb format, epoch sealing semantics, and Ed25519-keyed identity model are formalized in the IETF Internet-Draft *Trajectory-based Recognition of Identity Proof (TrIP)*, co-authored with TU Dresden and submitted to the RATS working group:
+
+→ [datatracker.ietf.org/doc/draft-ayerbe-trip-protocol/04](https://datatracker.ietf.org/doc/draft-ayerbe-trip-protocol/04/)
+
+External anchoring of MobyDB epoch roots to Stellar mainnet (giving the audit chain an untrusted external verification target) is on the v0.6 roadmap. See [Roadmap §12.2](/hive/roadmap).
+
+---
+
 ## Jurisdiction Headers
 
-Optional headers for geographic enforcement on any request:
+Optional headers for geographic enforcement on any request. These feed into **Gate 2 (jurisdiction resolution)** and **Gate 3 (delegation chain validation)** of the four router gates:
 
 | Header | Description |
 |--------|-------------|
@@ -150,6 +165,7 @@ Optional headers for geographic enforcement on any request:
 | `x-hive-h3-cell` | Target a specific H3 cell |
 | `x-hive-min-tier` | Minimum worker trust tier |
 | `x-hive-delegation-cert` | Base64 delegation certificate |
+| `x-gns-signature` | Ed25519 signature (required by Gate 1) |
 
 ---
 
@@ -157,8 +173,8 @@ Optional headers for geographic enforcement on any request:
 
 | Compute Type | Unit | Price (GNS) |
 |-------------|------|-------------|
-| Inference (Hive) | Per token | 0.00001 |
-| Inference (Groq) | Per token | 0 (subsidized) |
+| Inference (Hive, LFM2.5) | Per token | 0.00001 |
+| Inference (Groq backbone) | Per token | 0 (subsidized) |
 | Tile (cache hit) | Per tile | 0.00001 |
 | Tile (cache miss) | Per tile | 0.0001 |
 | Image processing | Per megapixel | 0.001 |
@@ -182,6 +198,8 @@ Optional headers for geographic enforcement on any request:
 |------|------|---------|
 | 400 | `invalid_model` | Model not available |
 | 400 | `invalid_cell` | Malformed H3 cell |
+| 400 | `cell parameter required` | Missing required `cell` query parameter (e.g. `/v1/imagery/ndvi`) |
 | 401 | `unauthorized` | Missing or invalid API key |
+| 401 | `signature_required` | Missing `X-GNS-Signature` header (Gate 1 rejection) |
 | 503 | `no_workers` | No eligible workers. Retry or remove jurisdiction constraint |
 | 504 | `job_timeout` | Job not completed within timeout |

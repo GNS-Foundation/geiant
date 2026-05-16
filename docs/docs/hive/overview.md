@@ -38,10 +38,12 @@ Every Hive job goes through one endpoint: `POST /v1/compute`. The worker declare
 
 | Type | Runtime | Status |
 |------|---------|--------|
-| **Inference** | llama.cpp + Groq backbone (Llama 3.3 70B) | **Live** |
+| **Inference** | llama.cpp (LFM2.5-1.2b-instruct default) + Groq backbone (Llama 3.3 70B fallback) | **Live** |
 | **Tile Rendering** | MapLibre proxy (5 styles, MapLibre-compatible) | **Live** |
-| **Satellite Imagery** | Sentinel-2 via Element84 STAC API | **Live** |
+| **Satellite Imagery** | Sentinel-2 via Element84 STAC API + IBM Prithvi (Earth Observation MCP) | **Live** |
 | **Sensor Fusion** | IoT aggregation (Terna use case) | Planned Q3 2026 |
+
+The default inference model is **LFM2.5-1.2b-instruct** from Liquid AI, served via llama.cpp build `b6709` at ~180–240 tokens/second on M-series Apple Silicon. The Groq backbone (Llama 3.3 70B) provides guaranteed availability when no swarm worker is currently online. Earth Observation foundation models (currently IBM Prithvi-EO-2.0) are exposed as MCP tools and callable from MCP-aware clients (Claude Desktop, Cursor) via the GEIANT Perception MCP server.
 
 ## Unified Compute API
 
@@ -67,6 +69,19 @@ Satellite scans the land. AI interprets the data. Map shows the area. **One requ
 
 → [Unified Compute API reference](/hive/unified-compute)
 
+## The four router gates
+
+Every request to any Hive compute endpoint — `/v1/compute`, `/v1/chat/completions`, `/v1/tiles`, `/v1/imagery` — passes through four enforcement gates at the GNS-AIP layer before any compute is dispatched:
+
+1. **Signature verification** — Ed25519 signature over canonical request JSON
+2. **Jurisdiction resolution** — H3 cell → country → regulatory framework (GDPR, EU AI Act, FINMA, …)
+3. **Delegation chain validation** — agent's delegation cert traced to a human principal
+4. **Geometry pre-flight** — GEOS-backed checks for any geometric primitives in the payload
+
+The gates are sequential. A request that fails any one is rejected without invoking the next. They are implemented at request entry, not per-endpoint, which means a new endpoint inherits them automatically. This is the structural basis for the EU AI Act Article 12/14 compliance claim — the gates cannot be bypassed.
+
+The four-gate router is a separately patentable claim (Proof-of-Jurisdiction, patent claim #2 extending the GNS Proof-of-Trajectory base patent USPTO Provisional #63/948,788).
+
 ## MobyDB — the proof engine
 
 Every computation writes a record to MobyDB, addressed by a three-field composite key:
@@ -79,6 +94,14 @@ Records accumulate within an epoch (1 hour). The auto-sealer computes a Merkle r
 
 → [MobyDB documentation](/hive/mobydb)
 
+## Standards engagement
+
+The breadcrumb format, epoch structure, and Ed25519-keyed identity model that Hive instantiates are formalized as an open standard in the IETF Internet-Draft *Trajectory-based Recognition of Identity Proof (TrIP)*, co-authored with TU Dresden and submitted to the RATS working group:
+
+→ [datatracker.ietf.org/doc/draft-ayerbe-trip-protocol/04](https://datatracker.ietf.org/doc/draft-ayerbe-trip-protocol/04/)
+
+The whitepaper describes a deployed system; the IETF draft describes the open standard. Hive is the first deployed instantiation of TrIP-compatible primitives.
+
 ## Groq backbone
 
 A Groq API backbone (Llama 3.3 70B) provides guaranteed availability when no swarm workers are online. The backbone is transparent — the proof footer shows "Groq" and the audit trail records `provider: "groq"`. As swarm density increases, jobs shift from backbone to local workers.
@@ -89,11 +112,11 @@ Live dashboard: [hive.geiant.com/audit](https://hive.geiant.com/audit)
 
 | Tier | Hardware | Capabilities | Earnings |
 |------|----------|-------------|----------|
-| **Tier 1** | Any laptop (CPU) | Tiles + small inference | ~0.35 GNS/day |
+| **Tier 1** | Any laptop (CPU) | Tiles + small inference (LFM2.5, TinyLlama) | ~0.35 GNS/day |
 | **Tier 2** | Gaming PC (RTX 3060+) | All compute types | ~8.7 GNS/day |
 | **Tier 3** | Pro GPU (4090/A100) | Concurrent jobs, large scenes | ~25+ GNS/day |
 
-Even a Tier 1 worker (any MacBook) can earn GNS tokens by rendering and caching map tiles. No GPU required.
+Even a Tier 1 worker (any MacBook) can earn GNS tokens by rendering and caching map tiles, or running LFM2.5-1.2b-instruct (~750 MB on disk at Q4_K_M). No high-end GPU required.
 
 ## What Hive is not
 
@@ -103,8 +126,12 @@ Even a Tier 1 worker (any MacBook) can earn GNS tokens by rendering and caching 
 
 ## Next steps
 
+- [Quick Start](/hive/quick-start)
 - [Unified Compute API](/hive/unified-compute)
 - [Tile Rendering](/hive/tile-rendering)
 - [Satellite Imagery](/hive/satellite-imagery)
 - [MobyDB](/hive/mobydb)
+- [H3 Resolution Reference](/hive/h3-resolution)
 - [Worker CLI](/hive/worker-cli)
+- [API Reference](/hive/api-reference)
+- [Roadmap](/hive/roadmap)

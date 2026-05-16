@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 7
 title: H3 Resolution Reference
 ---
 
@@ -105,7 +105,9 @@ latLngToCell(41.8919, 12.5113, 5); // → '851e8053fffffff' (larger still)
 
 The worker CLI uses IP geolocation to determine the device's cell automatically on join.
 
-## Jurisdiction binding
+## Jurisdiction binding and the router gates
+
+H3 cells are the substrate for **Gate 2 (jurisdiction resolution)** of the four router gates that every Hive request passes through. The gate resolves the request's H3 cell to a country code and applicable regulatory frameworks (GDPR, EU AI Act, FINMA, …) and rejects requests whose jurisdictional context is incompatible with the agent's delegation cert.
 
 Delegation certificates can restrict inference to specific H3 cells:
 
@@ -113,9 +115,11 @@ Delegation certificates can restrict inference to specific H3 cells:
 {
   "h3_cells": ["861e8050fffffff", "861e8053fffffff"],
   "jurisdiction": "EU",
-  "model": "phi-3-mini",
+  "model": "lfm2.5-1.2b-instruct",
   "min_trust_tier": "trusted"
 }
 ```
 
-The scheduler enforces this constraint at Pod assembly time — before any data moves. This is the structural basis for GDPR data residency compliance. See [API Reference — jurisdiction headers](./api-reference#jurisdiction-headers).
+The scheduler enforces this constraint at Pod assembly time — before any data moves. This is the structural basis for GDPR data residency compliance.
+
+See [Overview — The four router gates](/hive/overview#the-four-router-gates) for the full enforcement model, and [API Reference — jurisdiction headers](./api-reference#jurisdiction-headers) for the request-level headers.

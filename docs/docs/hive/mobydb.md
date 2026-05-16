@@ -1,5 +1,5 @@
 ---
-sidebar_position: 5
+sidebar_position: 6
 ---
 
 # MobyDB
@@ -48,16 +48,18 @@ Records accumulate within an epoch (1 hour). When the epoch ends, the auto-seale
 5. Stores the seal locally and syncs to central
 
 ```
-Epoch 2335: Merkle(rec₁, rec₂, ..., recₖ) → Root₂₃₃₅
+Epoch 3253: Merkle(rec₁, rec₂, ..., recₖ) → Root₃₂₅₃
 
-Epoch 2336: Merkle(records...) + chain(Root₂₃₃₅) → Root₂₃₃₆
+Epoch 3254: Merkle(records...) + chain(Root₃₂₅₃) → Root₃₂₅₄
 
-Epoch 2337: Merkle(records...) + chain(Root₂₃₃₆) → Root₂₃₃₇
+Epoch 3255: Merkle(records...) + chain(Root₃₂₅₄) → Root₃₂₅₅
 ```
 
 **Tamper with any record → the Merkle root changes.**
 **Tamper with any epoch → the chain breaks.**
 **Verification is O(log n) and requires no trust in any central authority.**
+
+The current epoch counter is observable in the `X-Hive-Epoch` header on any tile response (see [Tile Rendering](/hive/tile-rendering)) and advances continuously.
 
 ## Merkle tree structure
 
@@ -79,6 +81,24 @@ Epoch 2337: Merkle(records...) + chain(Root₂₃₃₆) → Root₂₃₃₇
 
 Each leaf is the SHA-256 hash of a compute record. Pairs are hashed together up the tree. The root is the epoch seal.
 
+## External anchoring to Stellar (v0.6 roadmap)
+
+The internal Merkle-DAG above is operational today. External anchoring to Stellar — the mechanism that makes the audit chain verifiable against an untrusted public ledger rather than against the GEIANT operator's signing keys alone — is on the v0.6 roadmap.
+
+The intended mechanism is a periodic transaction from a dedicated operator account that writes each sealed epoch's 32-byte Merkle root via a Stellar `manage_data` operation, with the operation's data-entry key encoding the epoch identifier (e.g., `epoch:3253`) and the value carrying the root itself. Stellar's native `manage_data` semantics — 64-byte keys, 64-byte values, stored in the account's persistent data — fit the Merkle-root anchoring use case directly without requiring a custom contract.
+
+Until Stellar anchoring ships in v0.6, tamper-evidence rests on the GEIANT operator's signing keys rather than on an external blockchain. This limitation is explicit and is the primary reason v0.6 is the earliest release that meaningfully claims EU AI Act Article 12 compliance.
+
+→ [Roadmap §12.2](/hive/roadmap) for the deployment window.
+
+## Standards alignment — IETF TrIP draft
+
+MobyDB's breadcrumb format, epoch structure, and Ed25519-keyed identity model are formalized as an open standard in the IETF Internet-Draft *Trajectory-based Recognition of Identity Proof (TrIP)*, co-authored with TU Dresden and submitted to the RATS working group:
+
+→ [datatracker.ietf.org/doc/draft-ayerbe-trip-protocol/04](https://datatracker.ietf.org/doc/draft-ayerbe-trip-protocol/04/)
+
+The draft specifies the CBOR-encoded breadcrumb format, append-only chain semantics, Merkle-rooted epoch structure, and verification procedures. MobyDB is the first deployed instantiation of TrIP-compatible primitives. The longer-term goal is that the audit-chain pattern outlives any single operator — any conformant verifier implementing the TrIP spec can validate MobyDB records and epoch seals.
+
 ## Proof verification
 
 Any party can verify a computation:
@@ -92,7 +112,7 @@ GET /mobydb/proof/{record_id}
 ```json
 {
   "record": { "id": "...", "record_hash": "a7f3...", "collection_type": "Inference", ... },
-  "seal": { "epoch": 2337, "merkle_root": "cec9...", "prev_epoch_hash": "4db2..." },
+  "seal": { "epoch": 3253, "merkle_root": "cec9...", "prev_epoch_hash": "4db2..." },
   "verified": true
 }
 ```
