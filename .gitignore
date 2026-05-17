@@ -6,3 +6,9 @@ dist/
 **/.DS_Store
 *.log
 /tmp/
+
+# Private keys and secrets — never commit
+*.pem
+*.key
+*.p12
+*.pfx
