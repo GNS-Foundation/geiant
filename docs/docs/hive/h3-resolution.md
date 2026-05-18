@@ -116,7 +116,7 @@ Delegation certificates can restrict inference to specific H3 cells:
   "h3_cells": ["861e8050fffffff", "861e8053fffffff"],
   "jurisdiction": "EU",
   "model": "lfm2.5-1.2b-instruct",
-  "min_trust_tier": "trusted"
+  "min_trust_tier": "navigator"
 }
 ```
 

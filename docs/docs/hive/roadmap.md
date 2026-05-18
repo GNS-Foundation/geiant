@@ -114,7 +114,7 @@ The next horizon shifts from inference primitives to agent orchestration. The de
 
 ### Trust-tier and identity infrastructure
 
-- Trust tier promotion automation (currently all workers register at `provisioned` and stay there)
+- Trust tier promotion automation (currently all workers register at `seedling` and stay there)
 - Unification of the two trust ladders — TierGate at the GNS-AIP level and the Hive swarm tier
 - ASN payout multipliers (deferred from earlier sprints)
 
