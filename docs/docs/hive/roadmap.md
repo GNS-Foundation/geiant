@@ -5,18 +5,18 @@ title: Roadmap
 
 # GEIANT Hive Roadmap
 
-This page documents what is shipped and operational at v0.5.1 (the current Hive deployment), what is in flight in the next deployment window, what is on the near-term roadmap, and what is explicitly out of scope. URLs in the *Currently deployed* section are independently verifiable with `curl`.
+This page documents what is shipped and operational at v0.6.0 (the current Hive deployment), what is in flight in the next deployment window, what is on the near-term roadmap, and what is explicitly out of scope. URLs in the *Currently deployed* section are independently verifiable with `curl`.
 
 This page is the canonical roadmap for the Hive layer of the GNS Protocol stack. For the broader GEIANT stack (L0 H3 → L1 GEP → L2 GNS-AIP → L3 GNS → DB MobyDB → L4 Hive), see [docs.geiant.com](https://docs.geiant.com/).
 
-## 12.1 Currently deployed (v0.5.1, May 2026)
+## 12.1 Currently deployed (v0.6.0, May 2026)
 
 ### Worker fabric and job execution
 
-- Worker CLI at `@gns-foundation/hive-worker@0.5.2` (see [Worker CLI](/hive/worker-cli))
+- Worker CLI at `@gns-foundation/hive-worker@0.6.0` (see [Worker CLI](/hive/worker-cli))
 - Atomic job claiming via the `claim_hive_job()` Postgres RPC with `SELECT FOR UPDATE SKIP LOCKED`
 - Inference via `llama.cpp` reference build `b6709`
-- **LFM2.5-1.2b-instruct as default model** with three additional models in the registry (`lfm2.5-1.2b-thinking`, `phi-3-mini`, `tinyllama`)
+- **Liquid AI LFM2.5-1.2b-instruct as default model** with three additional models in the registry: `lfm2.5-1.2b-thinking` (Liquid AI), `phi-3-mini` (Microsoft), `tinyllama`
 - Pipeline parallelism across multiple workers in the same H3 cell
 - Mobile relay workers (GCRUMBS app) routing jobs to compute workers and earning relay fees
 - Groq backbone fallback (Llama 3.3 70B) for guaranteed `@ai` uptime
@@ -27,6 +27,18 @@ This page is the canonical roadmap for the Hive layer of the GNS Protocol stack.
 - Signed and notarized binaries for macOS aarch64, macOS x86_64, Windows x64, Linux .deb, Linux AppImage
 - Distributed via Cloudflare R2 with manifest at `releases.geiant.com/manifest.json`
 - Model selector dropdown wired through to backend
+
+### Agent orchestration primitives (v0.6.0)
+
+The substrate for agent orchestration shipped in v0.6.0, demonstrating that the model marketplace pattern generalizes to a tool marketplace using the same atomic `claim_hive_job()` primitive.
+
+- `hive_tools` registry table with 5 seeded tools (`web-search`, `file-ops`, `python-repl`, `browser-automation`, `code-execution`), each with a `min_trust_tier` capability gate
+- Public registry endpoint `GET /v1/tools` and `GET /v1/tools/:tool_id` — workers and clients discover available tools without hard-coding
+- Workers advertise executable tools alongside models via the `swarm_nodes.tools` JSONB column (GIN-indexed for capability matching)
+- Jobs declare tool requirements via the `hive_jobs.required_tools` JSONB column; both `claim_hive_job()` and `claim_hive_job_pipeline()` enforce `workers.tools @> jobs.required_tools` at claim time, so workers only receive jobs they can execute
+- First production tool executor: `web-search` (Brave Search API with DuckDuckGo fallback). First signed tool execution on the swarm: job `b6be2b0f-45dd-43c3-9c80-042973dc52d2`, completed 2026-05-18T12:02:28Z, 369ms claim-to-result, verifiable via `SELECT * FROM hive_jobs WHERE id = 'b6be2b0f-45dd-43c3-9c80-042973dc52d2'`
+
+This is the load-bearing infrastructure for [§12.3 — agent spawning](#agent-spawning-and-orchestration): once tools are claimable, the agent layer becomes a thin orchestrator on top.
 
 ### HTTP API surface
 
@@ -126,11 +138,13 @@ The next horizon shifts from inference primitives to agent orchestration. The de
 - Signed breadcrumb audit trail for multi-agent sessions
 - GCRUMBS as agent notification surface
 
-### Local tool registry
+### GNS Skills — jurisdiction-enforced tool packages
 
-- Workers declare not just models but executable tools alongside them (browser-automation, code-execution, file-ops, Python REPL, web-search)
-- The model marketplace pattern generalizes to a tool marketplace using the same atomic `claim_hive_job()` primitive
-- GNS Skills — jurisdiction-enforced tool packages — extend the registry with delegation-cert-aware capability bundles
+The tool marketplace primitives are shipped (see [§12.1 — Agent orchestration primitives](#agent-orchestration-primitives-v060)). What remains in this horizon is wrapping tools into delegation-cert-aware capability bundles that enforce GNS-AIP jurisdiction constraints at tool-invocation time. A worker advertising a tool labeled `eu-only` and signed by a sovereign-tier delegation cert can be routed only to jobs originating from EEA H3 cells. This is the bridge between the tool-marketplace primitive and the EU AI Act Article 10(3) data-residency claim.
+
+- Tool capability bundles signed by GNS-AIP delegation certs
+- Tool-invocation-time jurisdiction enforcement (the fifth router gate, specific to tool execution)
+- Cross-tool audit chain — multi-tool agent sessions produce a single signed breadcrumb sequence
 
 ### GCRUMBS Android release
 
