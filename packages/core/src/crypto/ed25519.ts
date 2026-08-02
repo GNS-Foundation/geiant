@@ -152,6 +152,43 @@ export function verifyMessage(
 }
 
 /**
+ * Sign RAW message bytes with Ed25519 — NO SHA-256 pre-hash. The counterpart of
+ * `verifyRawMessage`; used to mirror external raw-byte signers (e.g. minting CGR
+ * attestation fixtures in tests). Production CGR attestations are signed in
+ * grafomem, not here.
+ */
+export function signRawMessage(message: Uint8Array, privateKeyHex: string): string {
+  const sigBytes = ed.sign(message, Buffer.from(privateKeyHex, 'hex'));
+  return Buffer.from(sigBytes).toString('hex');
+}
+
+/**
+ * Verify an Ed25519 signature over RAW message bytes — NO SHA-256 pre-hash.
+ *
+ * `verifyMessage`/`canonicalMessage` SHA-256 the input before Ed25519, which is
+ * the GNS manifest/breadcrumb convention. External signers that Ed25519-sign the
+ * canonical bytes DIRECTLY (e.g. grafomem's Foundation CGR attestations, which
+ * sign `canon(body)` with no digest step) must be verified over the raw bytes, or
+ * every signature fails. Use this for those; keep `verifyMessage` for GNS.
+ */
+export function verifyRawMessage(
+  message: Uint8Array,
+  signatureHex: string,
+  publicKeyHex: string
+): boolean {
+  try {
+    if (!signatureHex || signatureHex.length !== 128) return false;
+    if (!publicKeyHex || publicKeyHex.length !== 64) return false;
+
+    const sigBytes = Buffer.from(signatureHex, 'hex');
+    const pubBytes = Buffer.from(publicKeyHex, 'hex');
+    return ed.verify(sigBytes, message, pubBytes);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Verify an Ed25519 signature over a raw hash.
  */
 export function verifyHash(

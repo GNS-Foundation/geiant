@@ -31,7 +31,7 @@ interface CacheEntry {
 // DB row → AntManifest
 // ---------------------------------------------------------------------------
 
-function rowToManifest(row: Record<string, any>): AntManifest {
+export function rowToManifest(row: Record<string, any>): AntManifest {
   return {
     identity: {
       publicKey:      row.public_key,
@@ -48,6 +48,10 @@ function rowToManifest(row: Record<string, any>): AntManifest {
     operationCount: row.operation_count ?? 0,
     complianceScore: row.compliance_score ?? 0,
     signature:      row.signature ?? '',
+    // Absent column (pre-migration) or null ⇒ undefined — fully backward-compatible.
+    // The raw attestation is carried as-is; cgrBand()/routing RE-VERIFY it against
+    // the pinned Foundation key, so a tampered row cannot confer a band.
+    cgr:            row.cgr_attestation ?? undefined,
     updatedAt:      row.updated_at,
   };
 }
@@ -56,7 +60,7 @@ function rowToManifest(row: Record<string, any>): AntManifest {
 // AntManifest → DB row
 // ---------------------------------------------------------------------------
 
-function manifestToRow(manifest: AntManifest): Record<string, any> {
+export function manifestToRow(manifest: AntManifest): Record<string, any> {
   return {
     public_key:        manifest.identity.publicKey,
     handle:            manifest.identity.handle,
@@ -70,6 +74,12 @@ function manifestToRow(manifest: AntManifest): Record<string, any> {
     compliance_score:  manifest.complianceScore,
     stellar_account_id: manifest.identity.stellarAccountId,
     signature:         manifest.signature,
+    // CGR (additive, nullable — requires the cgr_columns migration). Full signed
+    // attestation in jsonb; band/score denormalized for querying only (trust
+    // decisions re-verify, they never read these two columns).
+    cgr_attestation:   manifest.cgr ?? null,
+    cgr_band:          manifest.cgr?.tier ?? null,
+    cgr_score:         manifest.cgr?.cgr_score ?? null,
     provisioned_at:    manifest.identity.provisionedAt,
     updated_at:        manifest.updatedAt ?? new Date().toISOString(),
   };

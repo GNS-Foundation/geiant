@@ -1,0 +1,229 @@
+// =============================================================================
+// GEIANT — CGR CONSUMPTION TEST SUITE (#4b)
+//
+// The golden fixture (cgr_attestation_v1_jcs.golden.json) is a REAL grafomem
+// #4a.1 emission (RFC 8785 / JCS canonicalization) — it is the cross-language
+// contract. Provenance: seed 0x11*32 (TEST KEY), CGRResult(..., 2/3, 6.0, 12, 3,
+// 0.75, ...). We verify it here and prove one-byte tamper fails.
+//
+// Scoring/persistence tests mint attestations locally with the same seed (the
+// derived pubkey equals the fixture's issuer_key_id), so the pinned key is shared.
+// =============================================================================
+
+import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+import {
+  verifyCGRAttestation, canonCGRBody, CGR_ATTESTATION_SCHEMA, CGR_ISSUER,
+} from '../agent/cgr.js';
+import {
+  cgrBand, effectiveTrust, scoreAntFitness, cgrCapabilityAdvisory, computeTier,
+} from '../agent/identity.js';
+import { keypairFromSeed, signRawMessage } from '../crypto/ed25519.js';
+import { rowToManifest, manifestToRow } from '../registry/supabase_registry.js';
+import type { AntManifest, CGRAttestation, AntFacet, AntTier } from '../types/index.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const GOLDEN = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures', 'cgr_attestation_v1_jcs.golden.json'), 'utf8')
+);
+const PINNED: string = GOLDEN.issuer_key_id;                       // d04ab2… (Foundation test pubkey)
+const SEED: string = GOLDEN.provenance.foundation_signing_seed_hex; // 0x11*32
+const kp = keypairFromSeed(SEED);
+
+// --- helpers ----------------------------------------------------------------
+
+function mint(over: Partial<CGRAttestation> & { agent_handle: string }): CGRAttestation {
+  const body: Record<string, unknown> = {
+    agent_handle: over.agent_handle,
+    dimension: over.dimension ?? 'receivables',
+    tier: over.tier ?? 'gold',
+    cgr_score: over.cgr_score ?? 0.9,
+    confidence: over.confidence ?? 40,
+    n_resolved: over.n_resolved ?? 40,
+    capability_tier: over.capability_tier ?? 0.8,
+    as_of: over.as_of ?? '2026-06-01T00:00:00Z',
+    rationale: over.rationale ?? 'test',
+    schema: CGR_ATTESTATION_SCHEMA,
+    issuer: CGR_ISSUER,
+    issuer_key_id: kp.publicKeyHex,
+  };
+  const signature = signRawMessage(canonCGRBody(body), kp.privateKeyHex);
+  return { ...(body as unknown as CGRAttestation), signature, evidence_ref: null };
+}
+
+function manifest(over: {
+  facet?: AntFacet; ops?: number; handle?: string; compliance?: number; cgr?: CGRAttestation;
+}): AntManifest {
+  const facet = over.facet ?? 'finance';
+  const ops = over.ops ?? 100;
+  const handle = over.handle ?? `${facet}@zurich`;
+  return {
+    identity: {
+      publicKey: 'ab'.repeat(32), handle, facet, tier: computeTier(ops),
+      territoryCells: ['cell1'], provisionedAt: '2026-01-01T00:00:00Z', stellarAccountId: '',
+    },
+    description: '', capabilities: [], mcpEndpoints: [],
+    operationCount: ops, complianceScore: over.compliance ?? 50,
+    signature: '', cgr: over.cgr, updatedAt: '2026-01-01T00:00:00Z',
+  };
+}
+
+// --- canonicalization byte-parity (the contract) ----------------------------
+
+describe('canonCGRBody — JCS byte-parity with grafomem', () => {
+  it('reproduces the committed canonical bytes exactly', () => {
+    expect(new TextDecoder().decode(canonCGRBody(GOLDEN.attestation))).toBe(GOLDEN.canonical_body_utf8);
+  });
+  it('JCS number/string rules: integer-valued float -> "6", raw UTF-8 ≥', () => {
+    const s = GOLDEN.canonical_body_utf8 as string;
+    expect(s).toContain('"confidence":6,');
+    expect(s).toContain('≥');
+    expect(s).not.toContain('\\u2265');
+  });
+});
+
+// --- golden verify + rejection ----------------------------------------------
+
+describe('verifyCGRAttestation — golden fixture (cross-language contract)', () => {
+  it('verifies a real grafomem attestation against the pinned Foundation key', () => {
+    expect(verifyCGRAttestation(GOLDEN.attestation, PINNED)).toEqual({ valid: true });
+  });
+
+  it('rejects one-byte tamper (score / band / handle)', () => {
+    const cases: Array<[string, unknown]> = [
+      ['cgr_score', 0.99], ['tier', 'gold'], ['agent_handle', 'attacker@evil'], ['n_resolved', 999],
+    ];
+    for (const [k, v] of cases) {
+      expect(verifyCGRAttestation({ ...GOLDEN.attestation, [k]: v }, PINNED).valid).toBe(false);
+    }
+  });
+
+  it('rejects a wrong (non-Foundation) key', () => {
+    const wrong = keypairFromSeed('22'.repeat(32)).publicKeyHex;
+    expect(verifyCGRAttestation(GOLDEN.attestation, wrong).valid).toBe(false);
+  });
+
+  it('rejects wrong issuer / schema / issuer_key_id before crypto', () => {
+    expect(verifyCGRAttestation({ ...GOLDEN.attestation, issuer: 'evil' }, PINNED).valid).toBe(false);
+    expect(verifyCGRAttestation({ ...GOLDEN.attestation, schema: 'x.v1' }, PINNED).valid).toBe(false);
+    expect(verifyCGRAttestation({ ...GOLDEN.attestation, issuer_key_id: '00'.repeat(32) }, PINNED).valid).toBe(false);
+  });
+
+  it('no pinned key -> fails closed', () => {
+    expect(verifyCGRAttestation(GOLDEN.attestation, undefined).valid).toBe(false);
+  });
+
+  it('freshness: stale as_of beyond maxAge -> false', () => {
+    const nowMs = Date.parse('2027-01-01T00:00:00Z');
+    expect(verifyCGRAttestation(GOLDEN.attestation, PINNED, { maxAgeMs: 1000, nowMs }).valid).toBe(false);
+    expect(verifyCGRAttestation(GOLDEN.attestation, PINNED, { maxAgeMs: 1000 * 60 * 60 * 24 * 3650, nowMs }).valid).toBe(true);
+  });
+
+  it('handle binding: expectedHandle must match agent_handle', () => {
+    expect(verifyCGRAttestation(GOLDEN.attestation, PINNED, { expectedHandle: 'someone-else' }).valid).toBe(false);
+    expect(verifyCGRAttestation(GOLDEN.attestation, PINNED, { expectedHandle: GOLDEN.attestation.agent_handle }).valid).toBe(true);
+  });
+});
+
+// --- cgrBand / effectiveTrust: re-verify, never trust stored band -----------
+
+describe('cgrBand / effectiveTrust', () => {
+  it('unproven when no attestation', () => {
+    expect(cgrBand(manifest({ cgr: undefined }), PINNED)).toBe('unproven');
+  });
+
+  it('unproven when the stored attestation is tampered (band is not trusted)', () => {
+    const good = mint({ agent_handle: 'finance@zurich', tier: 'gold' });
+    const tampered = { ...good, cgr_score: 0.01 }; // signature no longer matches
+    const m = manifest({ facet: 'finance', handle: 'finance@zurich', cgr: tampered });
+    expect(cgrBand(m, PINNED)).toBe('unproven');
+  });
+
+  it('returns the verified band for a valid attestation', () => {
+    const m = manifest({ facet: 'finance', handle: 'finance@zurich', cgr: mint({ agent_handle: 'finance@zurich', tier: 'silver' }) });
+    expect(cgrBand(m, PINNED)).toBe('silver');
+  });
+
+  it('effectiveTrust exposes BOTH axes, never collapsed', () => {
+    const m = manifest({ facet: 'finance', handle: 'finance@zurich', ops: 600, cgr: mint({ agent_handle: 'finance@zurich', tier: 'gold' }) });
+    expect(effectiveTrust(m, PINNED)).toEqual({ tier: computeTier(600), cgrBand: 'gold' });
+  });
+
+  it('reads the pinned key from CGR_FOUNDATION_PUBKEY env when not passed', () => {
+    const prev = process.env.CGR_FOUNDATION_PUBKEY;
+    process.env.CGR_FOUNDATION_PUBKEY = PINNED;
+    try {
+      const m = manifest({ facet: 'finance', handle: 'finance@zurich', cgr: mint({ agent_handle: 'finance@zurich', tier: 'bronze' }) });
+      expect(cgrBand(m)).toBe('bronze');
+    } finally {
+      if (prev === undefined) delete process.env.CGR_FOUNDATION_PUBKEY;
+      else process.env.CGR_FOUNDATION_PUBKEY = prev;
+    }
+  });
+});
+
+// --- facet-aware scoreAntFitness --------------------------------------------
+
+describe('scoreAntFitness — facet-aware', () => {
+  const cell = 'cell1';
+  const req: AntTier = 'observed';
+
+  it('finance: gold + high-conf outranks a high-ops unproven agent (CGR dominates volume)', () => {
+    const gold = manifest({ facet: 'finance', handle: 'finance@zurich', ops: 100, cgr: mint({ agent_handle: 'finance@zurich', tier: 'gold', n_resolved: 40 }) });
+    const volume = manifest({ facet: 'finance', handle: 'finance@osaka', ops: 500_000, cgr: undefined });
+    expect(scoreAntFitness(gold, cell, req, PINNED)).toBeGreaterThan(scoreAntFitness(volume, cell, req, PINNED));
+  });
+
+  it('legacy agent with no attestation scores EXACTLY as before', () => {
+    const m = manifest({ facet: 'finance', handle: 'finance@zurich', ops: 1000, compliance: 50, cgr: undefined });
+    const expected = 20 /*tier*/ + 50 /*compliance*/ + Math.min(20, Math.log10(1001) * 5);
+    expect(scoreAntFitness(m, cell, req, PINNED)).toBeCloseTo(expected, 10);
+  });
+
+  it('verifiable facet keeps the volume signal + a modest CGR nudge', () => {
+    const m = manifest({ facet: 'grid', handle: 'grid@zurich', ops: 1000, compliance: 50, cgr: mint({ agent_handle: 'grid@zurich', tier: 'gold', n_resolved: 40 }) });
+    const expected = 20 + 50 + Math.min(20, Math.log10(1001) * 5) + 3 * 8 * 1; // rank gold=3, W_default=8, conf=1
+    expect(scoreAntFitness(m, cell, req, PINNED)).toBeCloseTo(expected, 10);
+  });
+});
+
+// --- persistence mapping round-trip -----------------------------------------
+
+describe('persistence mapping (rowToManifest / manifestToRow)', () => {
+  it('manifest -> row -> manifest preserves the attestation', () => {
+    const att = mint({ agent_handle: 'finance@zurich', tier: 'silver' });
+    const row = manifestToRow(manifest({ facet: 'finance', handle: 'finance@zurich', cgr: att }));
+    expect(row.cgr_attestation).toEqual(att);
+    expect(row.cgr_band).toBe('silver');
+    expect(row.cgr_score).toBe(att.cgr_score);
+    expect(rowToManifest(row).cgr).toEqual(att);
+  });
+
+  it('absent column (pre-migration row) -> cgr undefined', () => {
+    const row = manifestToRow(manifest({ cgr: undefined }));
+    delete row.cgr_attestation; // simulate a row written before the migration
+    expect(rowToManifest(row).cgr).toBeUndefined();
+  });
+});
+
+// --- Task F: advisory capability ceiling ------------------------------------
+
+describe('cgrCapabilityAdvisory (advisory-only, not a hard gate)', () => {
+  it('warns when a certified agent lacks the advised band', () => {
+    const m = manifest({ facet: 'finance', handle: 'finance@zurich', ops: 5000, cgr: undefined }); // certified + unproven
+    const a = cgrCapabilityAdvisory(m, PINNED);
+    expect(a.ok).toBe(false);
+    expect(a.warning).toMatch(/financial-autonomy/);
+  });
+  it('ok when a certified agent has a sufficient band', () => {
+    const m = manifest({ facet: 'finance', handle: 'finance@zurich', ops: 5000, cgr: mint({ agent_handle: 'finance@zurich', tier: 'silver' }) });
+    expect(cgrCapabilityAdvisory(m, PINNED).ok).toBe(true);
+  });
+  it('does not gate sub-financial tiers', () => {
+    const m = manifest({ facet: 'finance', handle: 'finance@zurich', ops: 100, cgr: undefined }); // observed
+    expect(cgrCapabilityAdvisory(m, PINNED).ok).toBe(true);
+  });
+});

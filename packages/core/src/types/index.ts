@@ -119,6 +119,46 @@ export const ANT_TIER_MIN_OPS: Record<AntTier, number> = {
 };
 
 // ---------------------------------------------------------------------------
+// CGR — Capability-Grounded Reputation  (issued by grafomem's GNS-Foundation key)
+// ---------------------------------------------------------------------------
+
+/**
+ * CGRBand — the earned judgment-quality axis, ORTHOGONAL to the volume-based
+ * AntTier. Issued as a Foundation-signed attestation; GEIANT verifies + displays
+ * it but never computes it. `unproven` is the honest cold-start (no/insufficient
+ * evidence), NOT an error.
+ */
+export type CGRBand = 'unproven' | 'bronze' | 'silver' | 'gold';
+
+/**
+ * CGRAttestation — a Foundation-signed reputation record consumed from grafomem
+ * (#4a, schema `cgr.attestation.v1`). The SIGNED BODY is every field except
+ * `signature` and `evidence_ref`; the signature is Ed25519 (128 hex) over the
+ * RFC 8785 (JCS) canonical bytes of that body. `evidence_ref` is an envelope
+ * pointer (gcrumbs breadcrumb id) and is NOT signed.
+ */
+export interface CGRAttestation {
+  agent_handle: string;
+  dimension: string;
+  /** The CGR band — grafomem emits it under the key `tier`. */
+  tier: CGRBand;
+  cgr_score: number;
+  confidence: number;
+  n_resolved: number;
+  capability_tier: number | null;
+  as_of: string;
+  rationale: string;
+  schema: 'cgr.attestation.v1';
+  issuer: 'gns-foundation';
+  /** Foundation public key hex — must match the pinned CGR_FOUNDATION_PUBKEY. */
+  issuer_key_id: string;
+  /** Ed25519 signature (128 hex) over the JCS canonical signed body. */
+  signature: string;
+  /** gcrumbs breadcrumb id — envelope, NOT signed. */
+  evidence_ref: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Ant Manifest  (public registry entry)
 // ---------------------------------------------------------------------------
 
@@ -146,6 +186,14 @@ export interface AntManifest {
 
   /** Ed25519 signature of the manifest JSON (canonical, sorted keys) */
   signature: string;
+
+  /**
+   * Foundation-issued CGR attestation (the earned-quality axis). Optional:
+   * absent ⇒ legacy/unproven, fully backward-compatible. Presence alone does NOT
+   * grant trust — `cgrBand()`/routing re-verify the signature against the pinned
+   * Foundation key, so a tampered stored attestation cannot confer a band.
+   */
+  cgr?: CGRAttestation;
 
   updatedAt: string;
 }

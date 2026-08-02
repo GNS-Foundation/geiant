@@ -19,9 +19,11 @@ import {
   AntFacet,
   AntTier,
   AntManifest,
+  CGRBand,
   H3Cell,
   ANT_TIER_MIN_OPS,
 } from '../types/index.js';
+import { verifyCGRAttestation, getFoundationPubKey, CGR_BAND_RANK } from './cgr.js';
 
 // ---------------------------------------------------------------------------
 // Tier computation
@@ -45,6 +47,79 @@ export function computeTier(operationCount: number): AntTier {
 export function tierSatisfies(actual: AntTier, required: AntTier): boolean {
   const order: AntTier[] = ['provisioned', 'observed', 'trusted', 'certified', 'sovereign'];
   return order.indexOf(actual) >= order.indexOf(required);
+}
+
+// ---------------------------------------------------------------------------
+// CGR — earned judgment-quality axis (orthogonal to the volume-based tier)
+// ---------------------------------------------------------------------------
+//
+// The AntTier ladder stays the VERIFIABLE eligibility axis; the Foundation-issued
+// CGR band is the EARNED axis. effectiveTrust exposes both — never collapsed.
+// Trust decisions always RE-VERIFY the attestation against the pinned Foundation
+// key; a stored band is display metadata, never authority.
+
+/** Facets whose quality can't be checked from ops volume — CGR should dominate. */
+const UNVERIFIABLE_FACETS: ReadonlySet<AntFacet> = new Set<AntFacet>(['finance', 'legal']);
+
+// scoreAntFitness CGR-term tuning. Illustrative — satisfies the ordering invariant
+// (finance gold+high-conf outranks high-ops unproven); tune with real data.
+const CGR_CONF_FULL = 20;            // n_resolved at which confidence weight saturates
+const CGR_WEIGHT_UNVERIFIABLE = 40;  // gold(3)×full-conf ⇒ +120, dwarfs volume's max +20
+const CGR_WEIGHT_DEFAULT = 8;        // modest nudge where ops volume still carries signal
+
+/**
+ * The verified CGR band for a manifest, or 'unproven' if there is no attestation
+ * or it fails verification against the pinned Foundation key. NEVER returns a band
+ * from an unverified/tampered attestation.
+ */
+export function cgrBand(
+  manifest: AntManifest,
+  foundationPubKeyHex = getFoundationPubKey()
+): CGRBand {
+  if (!manifest.cgr) return 'unproven';
+  const res = verifyCGRAttestation(manifest.cgr, foundationPubKeyHex, {
+    expectedHandle: manifest.identity.handle,
+  });
+  return res.valid ? manifest.cgr.tier : 'unproven';
+}
+
+/**
+ * Expose BOTH trust axes for a manifest: the volume-based eligibility `tier` and
+ * the earned `cgrBand`. This is the surface the dashboard/website consume later.
+ */
+export function effectiveTrust(
+  manifest: AntManifest,
+  foundationPubKeyHex = getFoundationPubKey()
+): { tier: AntTier; cgrBand: CGRBand } {
+  return {
+    tier: manifest.identity.tier,
+    cgrBand: cgrBand(manifest, foundationPubKeyHex),
+  };
+}
+
+// Task F — advisory CGR capability ceiling for financial-autonomy tiers.
+// Financial autonomy shouldn't be reachable on ops volume alone. Advisory only
+// (surfaces a warning); NOT a hard gate, so legacy/unproven agents keep the tiers
+// they already hold until we decide to enforce.
+const MIN_BAND_FOR_TIER: Partial<Record<AntTier, CGRBand>> = {
+  certified: 'bronze',
+  sovereign: 'silver',
+};
+
+export function cgrCapabilityAdvisory(
+  manifest: AntManifest,
+  foundationPubKeyHex = getFoundationPubKey()
+): { ok: boolean; warning?: string } {
+  const required = MIN_BAND_FOR_TIER[manifest.identity.tier];
+  if (!required) return { ok: true };
+  const band = cgrBand(manifest, foundationPubKeyHex);
+  if (CGR_BAND_RANK[band] >= CGR_BAND_RANK[required]) return { ok: true };
+  return {
+    ok: false,
+    warning:
+      `tier '${manifest.identity.tier}' has CGR band '${band}' < advised '${required}' — ` +
+      `financial-autonomy trust should not rest on operation volume alone`,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -177,12 +252,17 @@ export function validateManifestStructure(manifest: AntManifest): {
  *   - Territory overlap (0 or 1 — hard requirement)
  *   - Compliance score (0–100)
  *   - Tier relative to required tier
- *   - Operation count (experience proxy)
+ *   - Operation count (experience proxy) — for verifiable facets
+ *   - CGR band × confidence (earned quality) — dominates volume for finance/legal
+ *
+ * Backward-compatible: an agent with no verified CGR attestation scores EXACTLY
+ * as before (tier + compliance + experience) — legacy ranking is unchanged.
  */
 export function scoreAntFitness(
   manifest: AntManifest,
   taskCell: H3Cell,
-  requiredTier: AntTier
+  requiredTier: AntTier,
+  foundationPubKeyHex = getFoundationPubKey()
 ): number {
   if (!isInTerritory(taskCell, manifest.identity.territoryCells, true)) {
     return -1; // ineligible
@@ -191,6 +271,22 @@ export function scoreAntFitness(
   const tierBonus = tierSatisfies(manifest.identity.tier, requiredTier) ? 20 : -100;
   const complianceBonus = manifest.complianceScore; // 0–100
   const experienceBonus = Math.min(20, Math.log10(manifest.operationCount + 1) * 5);
+  const base = tierBonus + complianceBonus;
 
-  return tierBonus + complianceBonus + experienceBonus;
+  const band = cgrBand(manifest, foundationPubKeyHex);
+  if (band === 'unproven') {
+    // No verified attestation ⇒ EXACTLY today's volume-based behaviour.
+    return base + experienceBonus;
+  }
+
+  const rank = CGR_BAND_RANK[band];                                   // 1..3 (bronze..gold)
+  const conf = Math.min(1, manifest.cgr!.n_resolved / CGR_CONF_FULL); // evidence weight in [0,1]
+
+  if (UNVERIFIABLE_FACETS.has(manifest.identity.facet)) {
+    // finance/legal: the CGR band×confidence term DOMINATES; drop the volume
+    // reward, which is exactly the gameable signal CGR corrects.
+    return base + rank * CGR_WEIGHT_UNVERIFIABLE * conf;
+  }
+  // verifiable / ops-heavy facets: keep the volume signal, add a modest CGR nudge.
+  return base + experienceBonus + rank * CGR_WEIGHT_DEFAULT * conf;
 }

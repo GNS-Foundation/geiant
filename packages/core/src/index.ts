@@ -16,7 +16,21 @@ export {
   derivestellarAccountId,
   validateManifestStructure,
   scoreAntFitness,
+  cgrBand,
+  effectiveTrust,
+  cgrCapabilityAdvisory,
 } from './agent/identity.js';
+
+// CGR — Foundation attestation verification (consumed from grafomem)
+export {
+  verifyCGRAttestation,
+  canonCGRBody,
+  getFoundationPubKey,
+  CGR_ATTESTATION_SCHEMA,
+  CGR_ISSUER,
+  CGR_BAND_RANK,
+} from './agent/cgr.js';
+export type { VerifyOptions as CGRVerifyOptions, VerifyResult as CGRVerifyResult } from './agent/cgr.js';
 
 // Geometry validation
 export {
@@ -69,6 +83,7 @@ export {
   signMessage,
   signHash,
   verifyMessage,
+  verifyRawMessage,
   verifyHash,
   signDelegationCert,
   verifyDelegationCert,
