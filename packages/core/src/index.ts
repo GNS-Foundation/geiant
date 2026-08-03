@@ -27,6 +27,7 @@ export {
   canonCGRBody,
   getFoundationPubKey,
   CGR_ATTESTATION_SCHEMA,
+  CGR_ATTESTATION_SCHEMA_V2,
   CGR_ISSUER,
   CGR_BAND_RANK,
 } from './agent/cgr.js';

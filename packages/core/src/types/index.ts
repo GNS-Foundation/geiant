@@ -148,8 +148,16 @@ export interface CGRAttestation {
   capability_tier: number | null;
   as_of: string;
   rationale: string;
-  schema: 'cgr.attestation.v1';
+  schema: 'cgr.attestation.v1' | 'cgr.attestation.v2';
   issuer: 'gns-foundation';
+  /**
+   * IDENTITY BINDING (#5, v2): the agent's GEIANT Ed25519 public key hex — the
+   * subject this reputation is about, INSIDE the signed body. Optional because v1
+   * attestations predate it; a v1 attestation cannot be key-bound (→ `unproven`).
+   */
+  subject_key?: string;
+  /** Optional did:key display alias of `subject_key` (raw hex is authoritative). */
+  subject_did?: string;
   /** Foundation public key hex — must match the pinned CGR_FOUNDATION_PUBKEY. */
   issuer_key_id: string;
   /** Ed25519 signature (128 hex) over the JCS canonical signed body. */

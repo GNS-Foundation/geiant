@@ -20,6 +20,10 @@ import { verifyRawMessage } from '../crypto/ed25519.js';
 import { CGRAttestation, CGRBand } from '../types/index.js';
 
 export const CGR_ATTESTATION_SCHEMA = 'cgr.attestation.v1';
+export const CGR_ATTESTATION_SCHEMA_V2 = 'cgr.attestation.v2';
+/** Both schema versions verify; v2 (#5) additionally carries `subject_key` (the
+ *  bound GEIANT identity key) inside the signed body. */
+const ACCEPTED_SCHEMAS = new Set<string>([CGR_ATTESTATION_SCHEMA, CGR_ATTESTATION_SCHEMA_V2]);
 export const CGR_ISSUER = 'gns-foundation';
 
 /** Envelope keys excluded from the signed body (mirrors grafomem's attestation.py). */
@@ -66,7 +70,17 @@ export interface VerifyOptions {
   maxAgeMs?: number;
   /** Current time in ms (injectable for tests); defaults to Date.now(). */
   nowMs?: number;
-  /** If provided, require `att.agent_handle === expectedHandle` (manifest binding). */
+  /**
+   * IDENTITY BINDING (#5, authoritative): require `att.subject_key === expectedKey`.
+   * When set, a v1/legacy attestation (no `subject_key`) can NOT be bound and is
+   * rejected — the key is the identity. This is what `cgrBand()` passes.
+   */
+  expectedKey?: string;
+  /**
+   * ADVISORY ONLY: if provided, also require `att.agent_handle === expectedHandle`.
+   * The handle is a human label (`facet@territory`), not authority — kept for
+   * optional cross-checks; NOT used for the trust binding.
+   */
   expectedHandle?: string;
 }
 
@@ -91,7 +105,7 @@ export function verifyCGRAttestation(
   if (!att || typeof att !== 'object') return { valid: false, reason: 'no attestation' };
   if (!foundationPubKeyHex) return { valid: false, reason: 'no pinned CGR_FOUNDATION_PUBKEY' };
 
-  if (att.schema !== CGR_ATTESTATION_SCHEMA) return { valid: false, reason: `bad schema: ${att.schema}` };
+  if (!ACCEPTED_SCHEMAS.has(att.schema)) return { valid: false, reason: `bad schema: ${att.schema}` };
   if (att.issuer !== CGR_ISSUER) return { valid: false, reason: `bad issuer: ${att.issuer}` };
   if (att.issuer_key_id !== foundationPubKeyHex) {
     return { valid: false, reason: 'issuer_key_id does not match pinned Foundation key' };
@@ -101,8 +115,26 @@ export function verifyCGRAttestation(
   }
   if (!(att.tier in CGR_BAND_RANK)) return { valid: false, reason: `unknown band: ${att.tier}` };
 
+  // Identity binding (#5) — the key is authoritative.
+  const subjectKey = (att as { subject_key?: unknown }).subject_key;
+  // Defense in depth: the neutrality invariant, mirrored on the consumer. A bound
+  // subject that equals the Foundation issuer key means "signed by the issuer about
+  // the issuer" — never valid.
+  if (typeof subjectKey === 'string' && subjectKey === att.issuer_key_id) {
+    return { valid: false, reason: 'subject_key equals issuer_key_id (neutrality violation)' };
+  }
+  if (opts.expectedKey !== undefined) {
+    if (typeof subjectKey !== 'string' || subjectKey.length === 0) {
+      // v1 / legacy: no key inside the signature ⇒ cannot bind to this identity.
+      return { valid: false, reason: 'attestation has no subject_key to bind (v1/legacy)' };
+    }
+    if (subjectKey !== opts.expectedKey) {
+      return { valid: false, reason: 'subject_key does not match manifest identity key' };
+    }
+  }
+
   if (opts.expectedHandle !== undefined && att.agent_handle !== opts.expectedHandle) {
-    return { valid: false, reason: 'agent_handle does not match manifest handle' };
+    return { valid: false, reason: 'agent_handle does not match manifest handle (advisory)' };
   }
 
   if (opts.maxAgeMs !== undefined) {

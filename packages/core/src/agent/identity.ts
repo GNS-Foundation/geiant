@@ -77,8 +77,11 @@ export function cgrBand(
   foundationPubKeyHex = getFoundationPubKey()
 ): CGRBand {
   if (!manifest.cgr) return 'unproven';
+  // Bind on the GEIANT IDENTITY KEY (#5), not the handle. verifyCGRAttestation
+  // requires att.subject_key === this key; a v1 attestation (no subject_key) or a
+  // key mismatch fails → 'unproven' (fail-safe). The handle is only a label now.
   const res = verifyCGRAttestation(manifest.cgr, foundationPubKeyHex, {
-    expectedHandle: manifest.identity.handle,
+    expectedKey: manifest.identity.publicKey,
   });
   return res.valid ? manifest.cgr.tier : 'unproven';
 }
