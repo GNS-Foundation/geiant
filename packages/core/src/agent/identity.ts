@@ -100,6 +100,25 @@ export function effectiveTrust(
   };
 }
 
+/**
+ * #7 identity continuity — the verified identity view for display: the CURRENT
+ * operational key, the stable identity ANCHOR did:key, and the band. `subjectKey`
+ * and `anchorDid` are populated ONLY when the attestation verifies against the
+ * pinned Foundation key (never from an unverified/tampered attestation). Binding is
+ * UNCHANGED — this reads the same verified result cgrBand() binds on.
+ */
+export function cgrIdentity(
+  manifest: AntManifest,
+  foundationPubKeyHex = getFoundationPubKey()
+): { band: CGRBand; subjectKey?: string; anchorDid?: string } {
+  if (!manifest.cgr) return { band: 'unproven' };
+  const res = verifyCGRAttestation(manifest.cgr, foundationPubKeyHex, {
+    expectedKey: manifest.identity.publicKey,
+  });
+  if (!res.valid) return { band: 'unproven' };
+  return { band: manifest.cgr.tier, subjectKey: res.subjectKey, anchorDid: res.subjectDid };
+}
+
 // Task F — advisory CGR capability ceiling for financial-autonomy tiers.
 // Financial autonomy shouldn't be reachable on ops volume alone. Advisory only
 // (surfaces a warning); NOT a hard gate, so legacy/unproven agents keep the tiers

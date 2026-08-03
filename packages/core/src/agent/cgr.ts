@@ -87,6 +87,13 @@ export interface VerifyOptions {
 export interface VerifyResult {
   valid: boolean;
   reason?: string;
+  /**
+   * #7 identity continuity — populated only on success. `subjectKey` is the CURRENT
+   * operational key the reputation binds to; `subjectDid` is the stable identity
+   * ANCHOR did:key (== did:key(subjectKey) when no rotation has occurred).
+   */
+  subjectKey?: string;
+  subjectDid?: string;
 }
 
 /**
@@ -152,5 +159,12 @@ export function verifyCGRAttestation(
   }
 
   const ok = verifyRawMessage(msg, att.signature, foundationPubKeyHex);
-  return ok ? { valid: true } : { valid: false, reason: 'signature verification failed' };
+  if (!ok) return { valid: false, reason: 'signature verification failed' };
+  // #7: surface the operational key + identity anchor did:key for consumers/display.
+  const did = (att as { subject_did?: unknown }).subject_did;
+  return {
+    valid: true,
+    subjectKey: typeof subjectKey === 'string' ? subjectKey : undefined,
+    subjectDid: typeof did === 'string' ? did : undefined,
+  };
 }

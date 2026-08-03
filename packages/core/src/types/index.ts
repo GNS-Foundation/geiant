@@ -83,6 +83,14 @@ export interface AntIdentity {
 
   /** Stellar account ID derived from Ed25519 public key (IDUP payment layer) */
   stellarAccountId: string;
+
+  /**
+   * #7 identity continuity: the ANCHOR (genesis) public key hex this identity's
+   * reputation aggregates over. Absent for legacy/never-rotated identities, where
+   * the anchor == publicKey. `publicKey` (the operational key) may rotate; `anchor`
+   * is stable across rotation and is what the registry resolves an agent by.
+   */
+  anchor?: string;
 }
 
 export type AntFacet =
@@ -156,7 +164,12 @@ export interface CGRAttestation {
    * attestations predate it; a v1 attestation cannot be key-bound (→ `unproven`).
    */
   subject_key?: string;
-  /** Optional did:key display alias of `subject_key` (raw hex is authoritative). */
+  /**
+   * #7 identity continuity: did:key of the identity ANCHOR (the genesis key).
+   * == did:key(subject_key) when no rotation has occurred; after a rotation it is
+   * the anchor's did:key while `subject_key` is the current operational key — the
+   * stable identity across key rotation. Raw `subject_key` hex remains the binding.
+   */
   subject_did?: string;
   /** Foundation public key hex — must match the pinned CGR_FOUNDATION_PUBKEY. */
   issuer_key_id: string;
