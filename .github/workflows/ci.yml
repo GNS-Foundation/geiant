@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # GATING job — this is what branch protection requires. Hermetic: @geiant/core
+  # tests are pure TS + crypto + committed fixtures (no Supabase/Postgres). Scoped
+  # to the core package so a half-built sibling can't block the CGR gate. The
+  # highest-value thing it protects is the cgr_attestation_*_jcs.golden.json
+  # byte-parity contract — a canonicalize/@noble bump that breaks JCS fails here.
+  core:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22"]   # root engines.node >= 22; add "24" only once it's green
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3        # match root package.json packageManager
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck @geiant/core
+        run: pnpm --filter @geiant/core typecheck
+
+      - name: Build @geiant/core
+        run: pnpm --filter @geiant/core build
+
+      - name: Test @geiant/core
+        run: pnpm --filter @geiant/core test
+
+  # NON-GATING full-workspace job (mirrors grafomem's DESCOPED `test-runtime`).
+  # Builds/tests every package incl. packages/mcp-postgis (native gdal-async, kept
+  # out of build scripts via pnpm-workspace ignoredBuiltDependencies) and apps/*,
+  # which carry heavier/native deps we don't want blocking a core CGR change. Kept
+  # for visibility; allowed to fail until separately hardened. Branch protection
+  # gates on `core` only, never on this job.
+  workspace:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm -r build
+
+      - name: Test all packages
+        run: pnpm -r test
