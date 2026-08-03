@@ -19,7 +19,7 @@ import {
   verifyCGRAttestation, canonCGRBody, CGR_ATTESTATION_SCHEMA, CGR_ATTESTATION_SCHEMA_V2, CGR_ISSUER,
 } from '../agent/cgr.js';
 import {
-  cgrBand, effectiveTrust, scoreAntFitness, cgrCapabilityAdvisory, computeTier,
+  cgrBand, cgrIdentity, effectiveTrust, scoreAntFitness, cgrCapabilityAdvisory, computeTier,
 } from '../agent/identity.js';
 import { keypairFromSeed, signRawMessage } from '../crypto/ed25519.js';
 import { rowToManifest, manifestToRow } from '../registry/supabase_registry.js';
@@ -33,7 +33,8 @@ const GOLDEN = loadFixture('cgr_attestation_v1_jcs.golden.json');   // v1, legac
 const GOLDEN_V2 = loadFixture('cgr_attestation_v2_jcs.golden.json'); // v2, identity-bound
 const PINNED: string = GOLDEN.issuer_key_id;                        // d04ab2… (Foundation pubkey; same for v1+v2)
 const SEED: string = GOLDEN.provenance.foundation_signing_seed_hex;  // 0x11*32
-const SUBJECT_V2: string = GOLDEN_V2.subject_key;                    // 17cb79fb… (agent identity key, seed 0x33)
+const SUBJECT_V2: string = GOLDEN_V2.subject_key;                    // #7: CURRENT operational key (d759793b…, seed 0x44)
+const SUBJECT_DID_V2: string = GOLDEN_V2.subject_did;                // #7: stable anchor did:key (of seed 0x33)
 const kp = keypairFromSeed(SEED);
 
 // The default stand-in agent GEIANT identity key (= manifest.identity.publicKey =
@@ -100,7 +101,7 @@ describe('canonCGRBody — JCS byte-parity with grafomem', () => {
 
 describe('verifyCGRAttestation — golden fixture (cross-language contract)', () => {
   it('verifies a real grafomem attestation against the pinned Foundation key', () => {
-    expect(verifyCGRAttestation(GOLDEN.attestation, PINNED)).toEqual({ valid: true });
+    expect(verifyCGRAttestation(GOLDEN.attestation, PINNED)).toMatchObject({ valid: true });
   });
 
   it('rejects one-byte tamper (score / band / handle)', () => {
@@ -244,7 +245,7 @@ describe('cgrCapabilityAdvisory (advisory-only, not a hard gate)', () => {
 describe('v2 identity-key binding', () => {
   it('golden v2 verifies true with expectedKey = subject_key + pinned Foundation key', () => {
     expect(verifyCGRAttestation(GOLDEN_V2.attestation, PINNED, { expectedKey: SUBJECT_V2 }))
-      .toEqual({ valid: true });
+      .toMatchObject({ valid: true });
   });
 
   it('canonCGRBody reproduces the committed v2 bytes exactly (subject_key inside the signed body)', () => {
@@ -277,5 +278,78 @@ describe('v2 identity-key binding', () => {
   it('subject_key == issuer_key_id → invalid (neutrality invariant, mirrored on the consumer)', () => {
     const evil = mint({ agent_handle: 'x', subject_key: kp.publicKeyHex });  // subject == Foundation issuer
     expect(verifyCGRAttestation(evil, PINNED, { expectedKey: kp.publicKeyHex }).valid).toBe(false);
+  });
+});
+
+// --- #7 identity continuity across key rotation (subject_did) ----------------
+// The golden v2 fixture is now a ROTATED identity: subject_key = current op key
+// (0x44), subject_did = did:key of the anchor (0x33). The consumer stays
+// transparent: canonCGRBody excludes only envelope keys, so subject_did rides the
+// signed body with no canonicalizer change.
+
+describe('#7 identity continuity (subject_did)', () => {
+  it('fixture is a rotated identity: subject_did present + well-formed, distinct from current key', () => {
+    expect(SUBJECT_DID_V2).toMatch(/^did:key:z/);
+    expect(GOLDEN_V2.attestation.subject_did).toBe(SUBJECT_DID_V2);
+    expect(SUBJECT_DID_V2).not.toBe(SUBJECT_V2);
+  });
+
+  it('canonCGRBody reproduces the bytes WITH subject_did inside the signed body', () => {
+    expect(new TextDecoder().decode(canonCGRBody(GOLDEN_V2.attestation))).toBe(GOLDEN_V2.canonical_body_utf8);
+    expect(GOLDEN_V2.canonical_body_utf8).toContain(`"subject_did":"${SUBJECT_DID_V2}"`);
+  });
+
+  it('verify succeeds and EXPOSES current key + anchor did:key', () => {
+    const res = verifyCGRAttestation(GOLDEN_V2.attestation, PINNED, { expectedKey: SUBJECT_V2 });
+    expect(res.valid).toBe(true);
+    expect(res.subjectKey).toBe(SUBJECT_V2);      // current operational key (the binding)
+    expect(res.subjectDid).toBe(SUBJECT_DID_V2);  // stable anchor did:key
+  });
+
+  it('one-byte tamper of subject_did breaks the signature (it is in the signed body)', () => {
+    const tampered = { ...GOLDEN_V2.attestation, subject_did: 'did:key:z6MkTampered000000000000000000000000000000000000' };
+    expect(verifyCGRAttestation(tampered, PINNED, { expectedKey: SUBJECT_V2 }).valid).toBe(false);
+  });
+
+  it('binding UNCHANGED — cgrBand still binds on subject_key (current key), not the anchor', () => {
+    const m = manifest({ pubkey: SUBJECT_V2, cgr: GOLDEN_V2.attestation });
+    expect(cgrBand(m, PINNED)).toBe(GOLDEN_V2.attestation.tier);
+  });
+
+  it('cgrIdentity surfaces the anchor did:key for display (band unchanged)', () => {
+    const m = manifest({ pubkey: SUBJECT_V2, cgr: GOLDEN_V2.attestation });
+    expect(cgrIdentity(m, PINNED)).toEqual({
+      band: GOLDEN_V2.attestation.tier, subjectKey: SUBJECT_V2, anchorDid: SUBJECT_DID_V2,
+    });
+  });
+
+  it('cgrIdentity on a key mismatch → unproven, no anchor leaked', () => {
+    const m = manifest({ pubkey: 'ff'.repeat(32), cgr: GOLDEN_V2.attestation });
+    expect(cgrIdentity(m, PINNED)).toEqual({ band: 'unproven' });
+  });
+});
+
+
+// --- #7 registry identity anchor mapping (pure row<->manifest) ---------------
+
+describe('#7 registry identity anchor mapping', () => {
+  it('manifestToRow defaults identity_anchor to the current key when no rotation', () => {
+    const row = manifestToRow(manifest({ pubkey: AGENT_KEY }));
+    expect(row.identity_anchor).toBe(AGENT_KEY);        // genesis == current
+    expect(row.public_key).toBe(AGENT_KEY);
+  });
+
+  it('manifestToRow preserves an explicit anchor across a rotated key', () => {
+    const m = manifest({ pubkey: 'bb'.repeat(32) });
+    m.identity.anchor = AGENT_KEY;                      // rotated: current=bb…, anchor=AGENT_KEY
+    const row = manifestToRow(m);
+    expect(row.identity_anchor).toBe(AGENT_KEY);        // stable across rotation
+    expect(row.public_key).toBe('bb'.repeat(32));       // operational key moved
+  });
+
+  it('rowToManifest maps identity_anchor → identity.anchor; legacy null ⇒ undefined', () => {
+    expect(rowToManifest({ public_key: 'aa'.repeat(32), identity_anchor: 'cc'.repeat(32) }).identity.anchor)
+      .toBe('cc'.repeat(32));
+    expect(rowToManifest({ public_key: 'aa'.repeat(32) }).identity.anchor).toBeUndefined();
   });
 });

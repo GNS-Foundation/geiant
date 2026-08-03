@@ -41,6 +41,8 @@ export function rowToManifest(row: Record<string, any>): AntManifest {
       territoryCells: row.territory_cells ?? [],
       provisionedAt:  row.provisioned_at,
       stellarAccountId: row.stellar_account_id ?? '',
+      // #7: anchor — NULL/absent (legacy) => undefined; resolver falls back to public_key.
+      anchor:         row.identity_anchor ?? undefined,
     },
     description:    row.description ?? '',
     capabilities:   row.capabilities ?? [],
@@ -73,6 +75,10 @@ export function manifestToRow(manifest: AntManifest): Record<string, any> {
     operation_count:   manifest.operationCount,
     compliance_score:  manifest.complianceScore,
     stellar_account_id: manifest.identity.stellarAccountId,
+    // #7: anchor defaults to the current key for a never-rotated identity (genesis
+    // == current); on rotation the caller supplies the stable anchor so the row's
+    // public_key changes while identity_anchor does not. NULL is never written.
+    identity_anchor:   manifest.identity.anchor ?? manifest.identity.publicKey,
     signature:         manifest.signature,
     // CGR (additive, nullable — requires the cgr_columns migration). Full signed
     // attestation in jsonb; band/score denormalized for querying only (trust
@@ -176,6 +182,53 @@ export class SupabaseRegistry implements AgentRegistry {
     const manifest = rowToManifest(data);
     this.cache.set(publicKey, { manifest, cachedAt: Date.now() });
     return manifest;
+  }
+
+  // ---------------------------------------------------------------------------
+  // getByIdentity — #7 continuity: resolve by identity ANCHOR or current key
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Resolve an agent by its stable identity ANCHOR or its current operational key.
+   * A rotated agent is found by its anchor (or its new key); legacy rows with no
+   * anchor still resolve by public_key. This is the continuity-aware lookup (#7).
+   */
+  async getByIdentity(keyOrAnchor: string): Promise<AntManifest | null> {
+    const { data, error } = await this.client
+      .from('agents')
+      .select('*')
+      .or(`identity_anchor.eq.${keyOrAnchor},public_key.eq.${keyOrAnchor}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return rowToManifest(data);
+  }
+
+  // ---------------------------------------------------------------------------
+  // rotateKey — #7 continuity: same identity, new operational key, ONE row
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Rotate an identity's operational key IN PLACE: update the single row matched by
+   * `anchor`, setting public_key (+ the rest of the manifest) to the new key while
+   * `identity_anchor` stays stable — so a rotated agent keeps ONE registry row and
+   * its earned history, instead of creating a fresh unproven entry. Assumes grafomem
+   * has verified the rotation chain and re-issued the attestation to the new key.
+   */
+  async rotateKey(anchor: string, newManifest: AntManifest): Promise<void> {
+    const row = manifestToRow(newManifest);
+    row.identity_anchor = anchor;                       // anchor is immutable across rotation
+    const { error } = await this.client
+      .from('agents')
+      .update(row)
+      .eq('identity_anchor', anchor);
+
+    if (error) {
+      throw new Error(`[SupabaseRegistry] rotateKey failed: ${error.message}`);
+    }
+    this.clearCache();
+    console.log(`[GEIANT Registry] Rotated anchor ${anchor.slice(0, 8)}… -> key ${newManifest.identity.publicKey.slice(0, 8)}…`);
   }
 
   // ---------------------------------------------------------------------------
