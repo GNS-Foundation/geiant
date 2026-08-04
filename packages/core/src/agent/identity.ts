@@ -24,6 +24,7 @@ import {
   ANT_TIER_MIN_OPS,
 } from '../types/index.js';
 import { verifyCGRAttestation, getFoundationPubKey, CGR_BAND_RANK } from './cgr.js';
+import { RotationProof, didKey, edVerify, resolveChain } from './rotation.js';
 
 // ---------------------------------------------------------------------------
 // Tier computation
@@ -117,6 +118,116 @@ export function cgrIdentity(
   });
   if (!res.valid) return { band: 'unproven' };
   return { band: manifest.cgr.tier, subjectKey: res.subjectKey, anchorDid: res.subjectDid };
+}
+
+// ---------------------------------------------------------------------------
+// CGR consumer-side rotation-chain verification (#10b) — ADDITIVE, async, fail-safe
+// ---------------------------------------------------------------------------
+//
+// The base band/binding (cgrBand, verifyCGRAttestation) are UNCHANGED and stay
+// synchronous + local. This adds an INDEPENDENT continuity check: geiant fetches
+// the self-certifying rotation proofs and walks anchor→current itself, so the
+// continuity claim no longer rests on trusting grafomem's re-issue.
+//
+//   verified   — chain independently confirmed: anchor→…→subject_key, all links
+//                signed, did_key(anchor) === subject_did, not frozen.
+//   asserted   — Foundation says continuity holds but the chain did NOT verify
+//                (fork/cycle/broken link / mismatch). Loud reason; NEVER silently
+//                promoted to verified.
+//   unverified — base attestation invalid, or proofs unavailable (fetch/parse
+//                error). Never blocks a trust decision — fail-open.
+
+export type FetchProofs = (currentKey: string) => Promise<RotationProof[]>;
+
+export interface ContinuityResult {
+  status: 'verified' | 'asserted' | 'unverified';
+  anchor?: string;
+  current?: string;
+  keyHistory?: string[];
+  reason?: string;
+}
+
+/**
+ * Independently verify that the attestation's `subject_key` is the end of a real,
+ * unbroken, correctly-signed rotation chain from its `subject_did` anchor — with
+ * ZERO added trust in grafomem (every fetched proof is re-verified locally).
+ * `fetchProofs` is INJECTED so this stays pure/testable offline.
+ */
+export async function verifyContinuity(
+  manifest: AntManifest,
+  fetchProofs: FetchProofs,
+  foundationPubKeyHex = getFoundationPubKey(),
+): Promise<ContinuityResult> {
+  const att = manifest.cgr;
+  // 1. base attestation must be valid (binding unchanged; the key is authoritative)
+  const base = verifyCGRAttestation(att, foundationPubKeyHex, { expectedKey: manifest.identity.publicKey });
+  if (!base.valid) return { status: 'unverified', reason: `base attestation invalid: ${base.reason ?? 'unknown'}` };
+
+  const subjectKey = att!.subject_key;
+  const subjectDid = att!.subject_did;
+
+  // 2. trivial (never rotated): no subject_did, or subject_did === did:key(subject_key)
+  //    ⇒ continuity is verified with NO network fetch.
+  if (!subjectDid || (subjectKey !== undefined && subjectDid === didKey(subjectKey))) {
+    return { status: 'verified', anchor: subjectKey, current: subjectKey, keyHistory: subjectKey ? [subjectKey] : [] };
+  }
+  if (subjectKey === undefined) {
+    return { status: 'asserted', reason: 'attestation has subject_did but no subject_key' };
+  }
+
+  // 3. fetch the self-certifying proofs and walk the chain ourselves
+  let proofs: RotationProof[];
+  try {
+    proofs = await fetchProofs(subjectKey);
+  } catch (e) {
+    return { status: 'unverified', reason: `proofs unavailable: ${(e as Error).message}` };
+  }
+  if (!Array.isArray(proofs)) return { status: 'unverified', reason: 'malformed proofs response' };
+
+  const { anchorOf, currentOf, historyOf, frozen } = resolveChain(proofs, edVerify);
+  const anchor = anchorOf.get(subjectKey);
+  if (anchor === undefined) {
+    return { status: 'asserted', current: subjectKey, reason: 'no verified chain reaches subject_key' };
+  }
+  if (frozen.has(anchor)) {
+    return { status: 'asserted', anchor, current: subjectKey, reason: 'identity chain frozen at a fork/cycle' };
+  }
+  if (currentOf.get(anchor) !== subjectKey) {
+    return { status: 'asserted', anchor, current: currentOf.get(anchor), reason: 'chain does not terminate at subject_key' };
+  }
+  if (didKey(anchor) !== subjectDid) {
+    return { status: 'asserted', anchor, current: subjectKey, reason: 'did_key(anchor) !== subject_did' };
+  }
+  return { status: 'verified', anchor, current: subjectKey, keyHistory: historyOf.get(anchor) ?? [anchor, subjectKey] };
+}
+
+/** Default `fetchProofs`: calls grafomem's read route `GET /v1/cgr/rotations?current=`.
+ *  A thin convenience; the pure flow always takes an injected fetcher. */
+export function httpFetchProofs(baseUrl: string, init?: RequestInit): FetchProofs {
+  return async (currentKey: string) => {
+    const res = await fetch(`${baseUrl}/v1/cgr/rotations?current=${encodeURIComponent(currentKey)}`, init);
+    if (!res.ok) throw new Error(`rotations fetch failed: HTTP ${res.status}`);
+    const body = (await res.json()) as { rotations?: RotationProof[] };
+    return body.rotations ?? [];
+  };
+}
+
+/**
+ * Async surface (#10b Task F): the synchronous `cgrIdentity` result PLUS the
+ * independent `continuity` status for the dashboard. Synchronous `cgrIdentity`
+ * stays untouched for the hot path.
+ */
+export async function cgrIdentityAsync(
+  manifest: AntManifest,
+  fetchProofs: FetchProofs,
+  foundationPubKeyHex = getFoundationPubKey(),
+): Promise<{
+  band: CGRBand; subjectKey?: string; anchorDid?: string;
+  continuity: 'verified' | 'asserted' | 'unverified'; keyHistory?: string[]; reason?: string;
+}> {
+  const sync = cgrIdentity(manifest, foundationPubKeyHex);
+  const cont = await verifyContinuity(manifest, fetchProofs, foundationPubKeyHex);
+  return { ...sync, continuity: cont.status, keyHistory: cont.keyHistory, reason: cont.reason };
 }
 
 // Task F — advisory CGR capability ceiling for financial-autonomy tiers.

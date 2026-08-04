@@ -19,7 +19,22 @@ export {
   cgrBand,
   effectiveTrust,
   cgrCapabilityAdvisory,
+  cgrIdentity,
+  cgrIdentityAsync,
+  verifyContinuity,
+  httpFetchProofs,
 } from './agent/identity.js';
+export type { ContinuityResult, FetchProofs } from './agent/identity.js';
+
+// CGR — consumer-side rotation-chain verification (#10b, mirror of grafomem identity.py)
+export {
+  verifyLink,
+  resolveChain,
+  didKey,
+  canonLinkBody,
+  edVerify,
+} from './agent/rotation.js';
+export type { RotationProof, RotationVerify, ChainResolution } from './agent/rotation.js';
 
 // CGR — Foundation attestation verification (consumed from grafomem)
 export {
