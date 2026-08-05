@@ -1,0 +1,50 @@
+/* ── GEIANT Compliance Dashboard — Global Styles ─────────────
+   Host style variables (--color-*, --font-*) are injected by
+   the MCP App host at runtime. Fallbacks here match the GEIANT
+   dark design system so the app looks correct in basic-host
+   and standalone dev mode.
+   ──────────────────────────────────────────────────────────── */
+
+:root {
+  /* GEIANT design tokens (used as fallbacks) */
+  --geiant-bg:     #06090f;
+  --geiant-bg2:    #0c1219;
+  --geiant-bg3:    #111827;
+  --geiant-cyan:   #0099cc;
+  --geiant-green:  #00c853;
+  --geiant-teal:   #00b4a0;
+  --geiant-purple: #7c3aed;
+  --geiant-red:    #e30613;
+  --geiant-amber:  #ffab00;
+  --geiant-text:   #c8d6e5;
+  --geiant-text2:  #8fa3b8;
+  --geiant-text3:  #5a6e82;
+  --geiant-border: rgba(0, 153, 204, 0.12);
+  --geiant-mono:   'Space Mono', monospace;
+  --geiant-sans:   'DM Sans', sans-serif;
+
+  /* Host style variable fallbacks */
+  --color-background-primary:   var(--geiant-bg);
+  --color-background-secondary: var(--geiant-bg2);
+  --color-background-tertiary:  var(--geiant-bg3);
+  --color-text-primary:         #ffffff;
+  --color-text-secondary:       var(--geiant-text2);
+  --color-text-tertiary:        var(--geiant-text3);
+  --color-border-tertiary:      var(--geiant-border);
+  --font-sans:                  var(--geiant-sans);
+  --font-mono:                  var(--geiant-mono);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: transparent;
+  color: var(--geiant-text);
+  font-family: var(--font-sans, var(--geiant-sans));
+  -webkit-font-smoothing: antialiased;
+}
+
+@media print {
+  body { background: #fff; color: #111; }
+  .actions { display: none !important; }
+}
