@@ -18,7 +18,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 
-const DIST_DIR = path.join(import.meta.dirname, 'dist');
+const DIST_DIR = new URL('../apps/compliance-dashboard/dist', import.meta.url).pathname;
 
 /**
  * Register the Compliance Dashboard MCP App on an existing McpServer.
