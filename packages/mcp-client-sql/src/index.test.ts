@@ -3,6 +3,7 @@
  * Tests preflight governance without requiring a live MCP server.
  */
 
+import { describe, it, expect } from 'vitest';
 import { preflight } from './index.js';
 import type { DelegationCert } from '@gns-aip/sdk';
 
