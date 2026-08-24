@@ -21,9 +21,17 @@ import { CGRAttestation, CGRBand } from '../types/index.js';
 
 export const CGR_ATTESTATION_SCHEMA = 'cgr.attestation.v1';
 export const CGR_ATTESTATION_SCHEMA_V2 = 'cgr.attestation.v2';
-/** Both schema versions verify; v2 (#5) additionally carries `subject_key` (the
- *  bound GEIANT identity key) inside the signed body. */
-const ACCEPTED_SCHEMAS = new Set<string>([CGR_ATTESTATION_SCHEMA, CGR_ATTESTATION_SCHEMA_V2]);
+export const CGR_ATTESTATION_SCHEMA_V3 = 'cgr.attestation.v3';
+/** v1/v2/v3 all verify. v2 (#5) adds `subject_key`; v3 (#2 + Track C) adds
+ *  `last_resolved_at` (freshness) plus the scope markers
+ *  `scoring_scope`/`requested_domain`/`domain_n_resolved` inside the signed body.
+ *  Verification is field-shape-AGNOSTIC — it canonicalizes the whole non-envelope
+ *  body — so both v3 shapes verify identically: the null/issuance shape
+ *  (`requested_domain: null`) and the populated read shape. This is the
+ *  expand half of the expand-contract: geiant accepts v3 BEFORE grafomem emits it. */
+const ACCEPTED_SCHEMAS = new Set<string>([
+  CGR_ATTESTATION_SCHEMA, CGR_ATTESTATION_SCHEMA_V2, CGR_ATTESTATION_SCHEMA_V3,
+]);
 export const CGR_ISSUER = 'gns-foundation';
 
 /** Envelope keys excluded from the signed body (mirrors grafomem's attestation.py). */

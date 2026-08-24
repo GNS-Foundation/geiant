@@ -16,7 +16,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import {
-  verifyCGRAttestation, canonCGRBody, CGR_ATTESTATION_SCHEMA, CGR_ATTESTATION_SCHEMA_V2, CGR_ISSUER,
+  verifyCGRAttestation, canonCGRBody, CGR_ATTESTATION_SCHEMA, CGR_ATTESTATION_SCHEMA_V2,
+  CGR_ATTESTATION_SCHEMA_V3, CGR_ISSUER,
 } from '../agent/cgr.js';
 import {
   cgrBand, cgrIdentity, effectiveTrust, scoreAntFitness, cgrCapabilityAdvisory, computeTier,
@@ -351,5 +352,59 @@ describe('#7 registry identity anchor mapping', () => {
     expect(rowToManifest({ public_key: 'aa'.repeat(32), identity_anchor: 'cc'.repeat(32) }).identity.anchor)
       .toBe('cc'.repeat(32));
     expect(rowToManifest({ public_key: 'aa'.repeat(32) }).identity.anchor).toBeUndefined();
+  });
+});
+
+// ── v3 acceptance (Track C D2 companion: accept v3 BEFORE grafomem emits it) ──
+// grafomem Ticket 2 bumps the attestation to cgr.attestation.v3 (adds last_resolved_at
+// freshness + scoring_scope/requested_domain/domain_n_resolved, all SIGNED). The
+// verifier is field-shape-agnostic (canonicalizes the whole non-envelope body), so BOTH
+// v3 shapes must verify: the null/issuance shape and the populated read shape.
+describe('verifyCGRAttestation — v3 (expand half of expand-contract)', () => {
+  const V3_NULL = loadFixture('cgr_attestation_v3_jcs.golden.json');       // issuance shape (requested_domain: null)
+  const V3_READ = loadFixture('cgr_attestation_v3_read_jcs.golden.json');  // populated read shape
+  const PIN3: string = V3_NULL.issuer_key_id;                              // same Foundation key (d04ab2…)
+
+  it('exports the v3 schema constant', () => {
+    expect(CGR_ATTESTATION_SCHEMA_V3).toBe('cgr.attestation.v3');
+  });
+
+  it('JCS parity: canonCGRBody == committed canonical bytes (both shapes)', () => {
+    expect(new TextDecoder().decode(canonCGRBody(V3_NULL.attestation))).toBe(V3_NULL.canonical_body_utf8);
+    expect(new TextDecoder().decode(canonCGRBody(V3_READ.attestation))).toBe(V3_READ.canonical_body_utf8);
+  });
+
+  it('accepts + verifies the null/issuance shape (requested_domain: null)', () => {
+    expect(V3_NULL.attestation.schema).toBe('cgr.attestation.v3');
+    expect(V3_NULL.attestation.requested_domain).toBeNull();
+    expect(V3_NULL.attestation.domain_n_resolved).toBeNull();
+    expect(V3_NULL.attestation.scoring_scope).toBe('pooled');
+    expect(verifyCGRAttestation(V3_NULL.attestation, PIN3)).toMatchObject({ valid: true });
+  });
+
+  it('accepts + verifies the populated read shape', () => {
+    expect(V3_READ.attestation.requested_domain).toBe('deploy-verification');
+    expect(V3_READ.attestation.domain_n_resolved).toBe(2);
+    expect(verifyCGRAttestation(V3_READ.attestation, PIN3)).toMatchObject({ valid: true });
+  });
+
+  it('binds subject_key on both v3 shapes', () => {
+    const key = V3_READ.subject_key;
+    expect(verifyCGRAttestation(V3_READ.attestation, PIN3, { expectedKey: key })).toMatchObject({ valid: true });
+    expect(verifyCGRAttestation(V3_READ.attestation, PIN3, { expectedKey: 'bb'.repeat(32) }).valid).toBe(false);
+  });
+
+  it('tamper of any SIGNED scope/freshness field fails (read shape)', () => {
+    const tampers: Record<string, unknown> = {
+      requested_domain: 'security-scan', domain_n_resolved: 999,
+      scoring_scope: 'domain-specific', last_resolved_at: '2020-01-01T00:00:00Z', cgr_score: 0.99,
+    };
+    for (const [k, v] of Object.entries(tampers)) {
+      expect(verifyCGRAttestation({ ...V3_READ.attestation, [k]: v }, PIN3).valid).toBe(false);
+    }
+  });
+
+  it('still rejects a bad schema (contract half stays intact)', () => {
+    expect(verifyCGRAttestation({ ...V3_NULL.attestation, schema: 'cgr.attestation.v99' }, PIN3).valid).toBe(false);
   });
 });

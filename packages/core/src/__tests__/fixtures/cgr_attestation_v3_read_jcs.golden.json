@@ -1,0 +1,35 @@
+{
+  "provenance": {
+    "ticket": "#2 (freshness) + Ticket-2 scope fields",
+    "schema": "cgr.attestation.v3",
+    "canonicalization": "RFC 8785 (JCS)",
+    "cross_language": "byte-identical to grafomem rfc8785",
+    "note": "v3 golden \u2014 neutral handle; public crypto material only (no signing seed committed)."
+  },
+  "issuer_key_id": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+  "subject_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+  "subject_did": "did:key:z6Mkg49NtQR2LyYRDCQFK4w1VVHqhypZSSRo7HsyuN7SV7v5",
+  "canonical_body_utf8": "{\"agent_handle\":\"analyst-a@example\",\"as_of\":\"2026-08-24T10:00:00Z\",\"capability_tier\":null,\"cgr_score\":0.8,\"confidence\":5,\"dimension\":\"receivables\",\"domain_n_resolved\":2,\"issuer\":\"gns-foundation\",\"issuer_key_id\":\"d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737\",\"last_resolved_at\":\"2026-08-24T09:59:00Z\",\"n_resolved\":3,\"rationale\":\"n_resolved 3 \u2265 proven floor\",\"requested_domain\":\"deploy-verification\",\"schema\":\"cgr.attestation.v3\",\"scoring_scope\":\"pooled\",\"subject_did\":\"did:key:z6Mkg49NtQR2LyYRDCQFK4w1VVHqhypZSSRo7HsyuN7SV7v5\",\"subject_key\":\"d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\",\"tier\":\"unproven\"}",
+  "attestation": {
+    "agent_handle": "analyst-a@example",
+    "subject_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+    "subject_did": "did:key:z6Mkg49NtQR2LyYRDCQFK4w1VVHqhypZSSRo7HsyuN7SV7v5",
+    "dimension": "receivables",
+    "tier": "unproven",
+    "cgr_score": 0.8,
+    "confidence": 5.0,
+    "n_resolved": 3,
+    "capability_tier": null,
+    "as_of": "2026-08-24T10:00:00Z",
+    "last_resolved_at": "2026-08-24T09:59:00Z",
+    "scoring_scope": "pooled",
+    "requested_domain": "deploy-verification",
+    "domain_n_resolved": 2,
+    "rationale": "n_resolved 3 \u2265 proven floor",
+    "schema": "cgr.attestation.v3",
+    "issuer": "gns-foundation",
+    "issuer_key_id": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+    "signature": "cade627f695124eb18ccbda2ac521cf0e18817e85b36b8b52aa0bdf1de3f99679716c1f46864537c1c30982771ea80e65a4413a9ad84b266b3ea8d599f028c0b",
+    "evidence_ref": null
+  }
+}
