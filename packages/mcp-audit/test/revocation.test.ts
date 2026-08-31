@@ -11,6 +11,7 @@ import {
   canonicalJson,
   hashDelegationCert,
   checkRevocation,
+  verifyDelegationCert,
 } from '../src/chain';
 import { DelegationCertificate } from '../src/types';
 import { AuditEngine } from '../src/middleware';
@@ -338,5 +339,136 @@ describe('AuditEngine.dropBreadcrumb revocation re-check', () => {
 
     expect(mock.store.agent_breadcrumbs).toHaveLength(1);
     expect(mock.store.compliance_violations).toHaveLength(0);
+  });
+});
+
+// ===========================================
+// 5. Agent-level denylist (agent_registry.revoked_at)
+// ===========================================
+
+describe('AuditEngine agent denylist', () => {
+  const REVOKED_AT = '2026-08-31T12:46:11.648Z';
+
+  function denylistAgent(mock: ReturnType<typeof createMockSupabase>, reason?: string) {
+    mock.store.agent_registry.push({
+      agent_pk: agentPk,
+      revoked_at: REVOKED_AT,
+      revocation_reason: reason ?? null,
+      breadcrumb_count: 0,
+    });
+  }
+
+  it('rejects init for a denylisted agent', async () => {
+    const { engine, mock } = createTestEngine();
+    denylistAgent(mock);
+    await expect(engine.init()).rejects.toThrow(/Agent is revoked/i);
+  });
+
+  it('surfaces the operator revocation_reason when present', async () => {
+    const { engine, mock } = createTestEngine();
+    denylistAgent(mock, 'key leaked in public repo');
+    await expect(engine.init()).rejects.toThrow(/key leaked in public repo/i);
+  });
+
+  it('does not insert a certificate or touch the registry for a denylisted agent', async () => {
+    const { engine, mock } = createTestEngine();
+    denylistAgent(mock);
+    await expect(engine.init()).rejects.toThrow();
+
+    // the outermost gate must run before ANY insert-on-first-sight
+    expect(mock.store.delegation_certificates).toHaveLength(0);
+    expect(mock.store.agent_registry).toHaveLength(1); // only the seeded denylist row
+  });
+
+  // --- the regression that motivated this gate -------------------------------
+  it('rejects a denylisted agent presenting a DIFFERENT, unrevoked certificate', async () => {
+    // A second principal self-signs a fresh cert for the SAME agent_pk with broader
+    // scope. Certificates vouch for themselves (verifyDelegationCert checks the
+    // signature against the principal_pk inside the cert) and there is no trusted
+    // principal allowlist, so this cert is cryptographically valid and its cert_hash
+    // is unknown to the registry — cert-level revocation cannot catch it.
+    const otherPrincipal = nacl.sign.keyPair();
+    const widerCert = signCert(
+      {
+        version: 1,
+        agent_pk: agentPk,
+        principal_pk: bytesToHex(otherPrincipal.publicKey),
+        h3_cells: [ROME_H3, MILAN_H3],
+        facets: ['energy@italy-geiant', '*'],
+        not_before: '2026-01-01T00:00:00.000Z',
+        not_after: '2027-12-31T23:59:59.000Z',
+        max_depth: 0,
+        constraints: { allowed_tools: ['perception_weather', 'spatial_query'], max_ops_per_hour: 9999 },
+      },
+      otherPrincipal.secretKey,
+    );
+
+    // sanity: the cert really is valid and really is a different cert
+    expect(verifyDelegationCert(widerCert)).toBe(true);
+    expect(await hashDelegationCert(widerCert)).not.toBe(validCertHash);
+
+    const { engine, mock } = createTestEngine(widerCert);
+    denylistAgent(mock);
+
+    await expect(engine.init()).rejects.toThrow(/Agent is revoked/i);
+    // and it must not have registered itself on the way in
+    expect(mock.store.delegation_certificates).toHaveLength(0);
+  });
+
+  it('still rejects when the agent is clean but the certificate is revoked', async () => {
+    const { engine, mock } = createTestEngine();
+    mock.store.delegation_certificates.push({
+      cert_hash: validCertHash,
+      agent_pk: agentPk,
+      revoked_at: REVOKED_AT,
+    });
+    await expect(engine.init()).rejects.toThrow(/revoked/i);
+  });
+
+  it('initializes normally when neither agent nor certificate is revoked', async () => {
+    const { engine, mock } = createTestEngine();
+    await expect(engine.init()).resolves.not.toThrow();
+    expect(mock.store.agent_registry).toHaveLength(1);
+    expect(mock.store.compliance_violations).toHaveLength(0);
+  });
+
+  it('preflight distinguishes agent revocation from certificate revocation', async () => {
+    const { engine } = createTestEngine();
+    await engine.init();
+
+    (engine as any).agentRevokedAt = REVOKED_AT;
+    const agentOnly = engine.preflight('perception_weather', ROME_H3);
+    expect(agentOnly.ok).toBe(false);
+    expect(agentOnly.errors.some(e => /Agent is revoked/i.test(e))).toBe(true);
+
+    (engine as any).agentRevokedAt = null;
+    (engine as any).certRevokedAt = REVOKED_AT;
+    const certOnly = engine.preflight('perception_weather', ROME_H3);
+    expect(certOnly.ok).toBe(false);
+    expect(certOnly.errors.some(e => /Agent is revoked/i.test(e))).toBe(false);
+    expect(certOnly.errors.some(e => /revoked at/i.test(e))).toBe(true);
+  });
+
+  it('blocks dropBreadcrumb when the agent is denylisted mid-flight', async () => {
+    const { engine, mock } = createTestEngine();
+    await engine.init();
+
+    // operator denylists the agent out-of-band, after the process is running
+    mock.store.agent_registry[0].revoked_at = REVOKED_AT;
+    (engine as any).revocationCheckedAt = 0;
+
+    await expect(
+      engine.dropBreadcrumb({
+        toolName: 'perception_weather',
+        toolInput: { cell: ROME_H3 },
+        toolOutput: { ok: true },
+        durationMs: 5,
+      }),
+    ).rejects.toThrow(/Agent is revoked/i);
+
+    expect(mock.store.agent_breadcrumbs).toHaveLength(0);
+    expect(
+      mock.store.compliance_violations.some(v => v.violation_type === 'revoked_credential'),
+    ).toBe(true);
   });
 });

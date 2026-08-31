@@ -69,6 +69,8 @@ export class AuditEngine {
   private initialized: boolean = false;
   /** Mirror of delegation_certificates.revoked_at; null when the cert is live. */
   private certRevokedAt: string | null = null;
+  /** Mirror of agent_registry.revoked_at; null when the agent is permitted. */
+  private agentRevokedAt: string | null = null;
   /** Epoch ms of the last revocation refresh, for the dropBreadcrumb re-check. */
   private revocationCheckedAt: number = 0;
 
@@ -108,6 +110,39 @@ export class AuditEngine {
     }
     if (this.cert.agent_pk !== this.agentPk) {
       throw new Error('AUDIT_INIT: Agent PK does not match delegation certificate');
+    }
+
+    // ---------------------------------------------------------------
+    // Agent denylist — the OUTERMOST gate.
+    //
+    // Certificate revocation alone cannot contain a leaked agent key:
+    // verifyDelegationCert() checks the signature against the principal_pk carried
+    // inside the certificate, and no trusted-principal allowlist exists, so a
+    // certificate vouches for itself. A holder of the agent secret can mint a new
+    // principal, self-sign a fresh certificate for the same agent_pk, and bypass a
+    // cert_hash revocation entirely. Bind revocation to the agent.
+    //
+    // Runs before ANY insert-on-first-sight — certificate or registry — so a
+    // revoked agent cannot register a new certificate on its way in.
+    // ---------------------------------------------------------------
+    const { data: agentRow } = await this.supabase
+      .from('agent_registry')
+      .select('agent_pk, revoked_at, revocation_reason')
+      .eq('agent_pk', this.agentPk)
+      .single();
+
+    this.agentRevokedAt =
+      (agentRow as { revoked_at?: string | null } | null)?.revoked_at ?? null;
+    const agentRevocation = checkRevocation(this.agentRevokedAt);
+    if (!agentRevocation.allowed) {
+      const note = (agentRow as { revocation_reason?: string | null } | null)?.revocation_reason;
+      const detail = `Agent is revoked — ${agentRevocation.reason}${note ? ` (${note})` : ''}`;
+      await this.logViolation({
+        type: 'revoked_credential',
+        description: `AUDIT_INIT: ${detail}`,
+        severity: 'critical',
+      });
+      throw new Error(`AUDIT_INIT: ${detail}`);
     }
 
     // Store cert in DB if not present
@@ -200,8 +235,15 @@ export class AuditEngine {
     const errors: string[] = [];
     const cell = locationCell ?? this.config.defaultLocationCell;
 
-    // 0. Credential revoked? Checked first: a revoked cert is not merely
-    //    out of scope, it carries no authority at all.
+    // 0a. Agent denylisted? Outranks everything — a revoked agent has no
+    //     authority under ANY certificate it might present.
+    const aCheck = checkRevocation(this.agentRevokedAt);
+    if (!aCheck.allowed) {
+      errors.push(`Agent is revoked — ${aCheck.reason}`);
+    }
+
+    // 0b. Credential revoked? A revoked cert is not merely out of scope,
+    //     it carries no authority at all.
     const rCheck = checkRevocation(this.certRevokedAt);
     if (!rCheck.allowed) {
       errors.push(rCheck.reason!);
@@ -348,33 +390,59 @@ export class AuditEngine {
    */
   private async assertNotRevoked(): Promise<void> {
     const REVOCATION_TTL_MS = 60_000;
+
+    const evaluate = (): { blocked: boolean; detail?: string } => {
+      const agent = checkRevocation(this.agentRevokedAt);
+      if (!agent.allowed) return { blocked: true, detail: `Agent is revoked — ${agent.reason}` };
+      const cert = checkRevocation(this.certRevokedAt);
+      if (!cert.allowed) return { blocked: true, detail: cert.reason };
+      return { blocked: false };
+    };
+
     if (Date.now() - this.revocationCheckedAt < REVOCATION_TTL_MS) {
-      const cached = checkRevocation(this.certRevokedAt);
-      if (!cached.allowed) throw new Error(`AUDIT_BLOCKED: ${cached.reason}`);
+      const cached = evaluate();
+      if (cached.blocked) throw new Error(`AUDIT_BLOCKED: ${cached.detail}`);
       return;
     }
 
-    const { data, error } = await this.supabase
-      .from('delegation_certificates')
-      .select('revoked_at')
-      .eq('cert_hash', this.certHash)
-      .single();
+    // Re-read both levels. Agent revocation outranks certificate revocation:
+    // a revoked agent is refused whichever certificate it presents.
+    const [certRes, agentRes] = await Promise.all([
+      this.supabase
+        .from('delegation_certificates')
+        .select('revoked_at')
+        .eq('cert_hash', this.certHash)
+        .single(),
+      this.supabase
+        .from('agent_registry')
+        .select('revoked_at')
+        .eq('agent_pk', this.agentPk)
+        .single(),
+    ]);
 
     // On a transient read failure keep the last known state rather than
     // failing open or hard-failing a healthy agent.
-    if (!error) {
-      this.certRevokedAt = (data as { revoked_at?: string | null } | null)?.revoked_at ?? null;
-      this.revocationCheckedAt = Date.now();
+    let refreshed = false;
+    if (!certRes.error) {
+      this.certRevokedAt =
+        (certRes.data as { revoked_at?: string | null } | null)?.revoked_at ?? null;
+      refreshed = true;
     }
+    if (!agentRes.error) {
+      this.agentRevokedAt =
+        (agentRes.data as { revoked_at?: string | null } | null)?.revoked_at ?? null;
+      refreshed = true;
+    }
+    if (refreshed) this.revocationCheckedAt = Date.now();
 
-    const check = checkRevocation(this.certRevokedAt);
-    if (!check.allowed) {
+    const check = evaluate();
+    if (check.blocked) {
       await this.logViolation({
         type: 'revoked_credential',
-        description: `AUDIT_BLOCKED: ${check.reason}`,
+        description: `AUDIT_BLOCKED: ${check.detail}`,
         severity: 'critical',
       });
-      throw new Error(`AUDIT_BLOCKED: ${check.reason}`);
+      throw new Error(`AUDIT_BLOCKED: ${check.detail}`);
     }
   }
 
