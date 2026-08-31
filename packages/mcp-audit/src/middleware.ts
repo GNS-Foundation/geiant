@@ -29,6 +29,7 @@ import {
   checkJurisdiction,
   checkFacet,
   checkToolAllowed,
+  checkRevocation,
   computeTier,
   computeTrustScore,
   verifyChain,
@@ -66,6 +67,10 @@ export class AuditEngine {
   private lastBlockHash: string | null = null;
   private nextIndex: number = 0;
   private initialized: boolean = false;
+  /** Mirror of delegation_certificates.revoked_at; null when the cert is live. */
+  private certRevokedAt: string | null = null;
+  /** Epoch ms of the last revocation refresh, for the dropBreadcrumb re-check. */
+  private revocationCheckedAt: number = 0;
 
   constructor(config: AuditConfig) {
     this.config = config;
@@ -108,9 +113,23 @@ export class AuditEngine {
     // Store cert in DB if not present
     const { data: existingCert } = await this.supabase
       .from('delegation_certificates')
-      .select('cert_hash')
+      .select('cert_hash, revoked_at')
       .eq('cert_hash', this.certHash)
       .single();
+
+    // Revocation gate — must run BEFORE the insert-on-first-sight path below,
+    // otherwise a revoked cert that had been deleted would be silently re-created.
+    this.certRevokedAt = (existingCert as { revoked_at?: string | null } | null)?.revoked_at ?? null;
+    this.revocationCheckedAt = Date.now();
+    const revocation = checkRevocation(this.certRevokedAt);
+    if (!revocation.allowed) {
+      await this.logViolation({
+        type: 'revoked_credential',
+        description: `AUDIT_INIT: ${revocation.reason}`,
+        severity: 'critical',
+      });
+      throw new Error(`AUDIT_INIT: ${revocation.reason}`);
+    }
 
     if (!existingCert) {
       await this.supabase.from('delegation_certificates').insert({
@@ -181,6 +200,13 @@ export class AuditEngine {
     const errors: string[] = [];
     const cell = locationCell ?? this.config.defaultLocationCell;
 
+    // 0. Credential revoked? Checked first: a revoked cert is not merely
+    //    out of scope, it carries no authority at all.
+    const rCheck = checkRevocation(this.certRevokedAt);
+    if (!rCheck.allowed) {
+      errors.push(rCheck.reason!);
+    }
+
     // 1. Cert still active?
     if (!isDelegationCertActive(this.cert)) {
       errors.push('Delegation certificate expired');
@@ -224,6 +250,7 @@ export class AuditEngine {
     error?: string;
   }): Promise<VirtualBreadcrumbBlock> {
     if (!this.initialized) await this.init();
+    await this.assertNotRevoked();
 
     const cell = params.locationCell ?? this.config.defaultLocationCell;
     const resolution = params.locationResolution ?? this.config.defaultLocationResolution;
@@ -313,6 +340,43 @@ export class AuditEngine {
   // ===========================================
   // Log compliance violation
   // ===========================================
+
+  /**
+   * Re-read revoked_at so a long-lived process honours a revocation without a
+   * restart. init() alone would leave an already-running agent authorised until
+   * it next boots. Throttled by REVOCATION_TTL_MS to keep this off the hot path.
+   */
+  private async assertNotRevoked(): Promise<void> {
+    const REVOCATION_TTL_MS = 60_000;
+    if (Date.now() - this.revocationCheckedAt < REVOCATION_TTL_MS) {
+      const cached = checkRevocation(this.certRevokedAt);
+      if (!cached.allowed) throw new Error(`AUDIT_BLOCKED: ${cached.reason}`);
+      return;
+    }
+
+    const { data, error } = await this.supabase
+      .from('delegation_certificates')
+      .select('revoked_at')
+      .eq('cert_hash', this.certHash)
+      .single();
+
+    // On a transient read failure keep the last known state rather than
+    // failing open or hard-failing a healthy agent.
+    if (!error) {
+      this.certRevokedAt = (data as { revoked_at?: string | null } | null)?.revoked_at ?? null;
+      this.revocationCheckedAt = Date.now();
+    }
+
+    const check = checkRevocation(this.certRevokedAt);
+    if (!check.allowed) {
+      await this.logViolation({
+        type: 'revoked_credential',
+        description: `AUDIT_BLOCKED: ${check.reason}`,
+        severity: 'critical',
+      });
+      throw new Error(`AUDIT_BLOCKED: ${check.reason}`);
+    }
+  }
 
   private async logViolation(params: {
     type: string;

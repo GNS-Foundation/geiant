@@ -168,7 +168,13 @@ export interface ComplianceReport {
 export interface ComplianceViolation {
   block_index: number;
   timestamp: string;
-  type: 'jurisdiction_breach' | 'facet_violation' | 'rate_limit' | 'cert_expired' | 'chain_break';
+  type:
+    | 'jurisdiction_breach'
+    | 'facet_violation'
+    | 'rate_limit'
+    | 'cert_expired'
+    | 'chain_break'
+    | 'revoked_credential';
   description: string;
   severity: 'warning' | 'critical';
 }
