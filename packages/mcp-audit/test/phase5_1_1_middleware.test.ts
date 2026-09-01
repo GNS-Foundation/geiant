@@ -170,7 +170,11 @@ beforeAll(() => {
 // Helper: create AuditEngine with mock Supabase
 // ===========================================
 
-function createTestEngine(certOverride?: DelegationCertificate) {
+function createTestEngine(
+  certOverride?: DelegationCertificate,
+  opts: { provision?: boolean } = {},
+) {
+  const { provision = true } = opts;
   const mock = createMockSupabase();
   const engine = new AuditEngine({
     supabaseUrl: 'https://test.supabase.co',
@@ -184,6 +188,22 @@ function createTestEngine(certOverride?: DelegationCertificate) {
 
   // Inject mock supabase client
   (engine as any).supabase = mock.client;
+
+  // A2 (grafomem 0006): agents are registered by EXPLICIT PROVISIONING before their first audited op
+  // — the engine no longer self-registers. Seed the registry row up front so init() passes, unless a
+  // test opts out to exercise the unregistered-agent denial.
+  if (provision) {
+    mock.store.agent_registry.push({
+      agent_pk: engine.agentPublicKey,
+      handle: 'energy@italy-geiant',
+      display_name: 'Test Agent',
+      current_tier: 'provisioned',
+      active_cert_hash: null,
+      breadcrumb_count: 0,
+      trust_score: 0,
+      revoked_at: null,
+    });
+  }
 
   return { engine, mock };
 }
@@ -204,15 +224,25 @@ describe('AuditEngine initialization', () => {
     expect(mock.store.agent_registry.length).toBe(1);
   });
 
-  it('2: registers agent in agent_registry', async () => {
-    const { engine, mock } = createTestEngine();
-    await engine.init();
+  it('2: DENIES an unregistered agent (A2) — reason distinct from "revoked", and does not self-register', async () => {
+    const { engine, mock } = createTestEngine(undefined, { provision: false });
+    await expect(engine.init()).rejects.toThrow('not registered');
+    await expect(engine.init()).rejects.not.toThrow('revoked');
+    // the engine did NOT create a row on its way in (auto-self-registration removed under A2)
+    expect(mock.store.agent_registry.length).toBe(0);
+    // recorded as its own violation type, separable from revocation
+    const v = mock.store.compliance_violations.at(-1);
+    expect(v?.violation_type).toBe('unregistered_agent');
+  });
 
+  it('2b: a PROVISIONED agent initializes; the engine does not self-register a second row', async () => {
+    const { engine, mock } = createTestEngine();   // provisioned up front (A2)
+    expect(mock.store.agent_registry.length).toBe(1);
+    await engine.init();
+    expect(mock.store.agent_registry.length).toBe(1);   // init added nothing
     const agent = mock.store.agent_registry[0];
     expect(agent.agent_pk).toBe(agentPk);
-    expect(agent.handle).toBe('energy@italy-geiant');
     expect(agent.current_tier).toBe('provisioned');
-    expect(agent.breadcrumb_count).toBe(0);
   });
 
   it('3: rejects expired cert', async () => {

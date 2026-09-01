@@ -111,7 +111,15 @@ function createMockSupabase() {
   return { client: { from: mockFrom } as any, store };
 }
 
-function createTestEngine(certOverride?: DelegationCertificate) {
+function createTestEngine(
+  certOverride?: DelegationCertificate,
+  opts: { provision?: boolean } = {},
+) {
+  // A2 (grafomem decision 0006, 2026-09-02): an agent is registered by explicit provisioning
+  // BEFORE its first audited op; the engine no longer self-registers. Seed the registry row by
+  // default so these gate tests exercise cert/denylist behaviour, not the A2 deny. Pass
+  // { provision: false } to exercise the A2 unregistered-agent deny path itself.
+  const { provision = true } = opts;
   const mock = createMockSupabase();
   const engine = new AuditEngine({
     supabaseUrl: 'https://test.supabase.co',
@@ -123,6 +131,19 @@ function createTestEngine(certOverride?: DelegationCertificate) {
     defaultLocationResolution: 5,
   });
   (engine as any).supabase = mock.client;
+  if (provision) {
+    mock.store.agent_registry.push({
+      agent_pk: agentPk,
+      handle: 'energy@italy-geiant',
+      display_name: 'Test Agent',
+      current_tier: 'provisioned',
+      active_cert_hash: null,
+      breadcrumb_count: 0,
+      trust_score: 0,
+      revoked_at: null,
+      revocation_reason: null,
+    });
+  }
   return { engine, mock };
 }
 
@@ -206,9 +227,10 @@ describe('AuditEngine.init revocation gate', () => {
 
     await expect(engine.init()).rejects.toThrow();
 
-    // insert-on-first-sight must not have run for either table
+    // the revoked-cert gate must run before the cert insert (no new cert row), and under A2 the
+    // engine never self-registers — the only registry row is the one provisioning seeded.
     expect(mock.store.delegation_certificates).toHaveLength(1);
-    expect(mock.store.agent_registry).toHaveLength(0);
+    expect(mock.store.agent_registry).toHaveLength(1);
   });
 
   it('records a revoked_credential violation, distinct from jurisdiction_breach', async () => {
@@ -349,13 +371,22 @@ describe('AuditEngine.dropBreadcrumb revocation re-check', () => {
 describe('AuditEngine agent denylist', () => {
   const REVOKED_AT = '2026-08-31T12:46:11.648Z';
 
+  // Under A2 the agent is pre-provisioned (createTestEngine seeds a clean row). Denylisting an
+  // operator's agent revokes THAT row rather than adding a second one — a second row would leave
+  // the mock's .single() returning the clean row and the denylist gate would never fire.
   function denylistAgent(mock: ReturnType<typeof createMockSupabase>, reason?: string) {
-    mock.store.agent_registry.push({
-      agent_pk: agentPk,
-      revoked_at: REVOKED_AT,
-      revocation_reason: reason ?? null,
-      breadcrumb_count: 0,
-    });
+    const existing = mock.store.agent_registry.find((r: any) => r.agent_pk === agentPk);
+    if (existing) {
+      existing.revoked_at = REVOKED_AT;
+      existing.revocation_reason = reason ?? null;
+    } else {
+      mock.store.agent_registry.push({
+        agent_pk: agentPk,
+        revoked_at: REVOKED_AT,
+        revocation_reason: reason ?? null,
+        breadcrumb_count: 0,
+      });
+    }
   }
 
   it('rejects init for a denylisted agent', async () => {
@@ -375,9 +406,9 @@ describe('AuditEngine agent denylist', () => {
     denylistAgent(mock);
     await expect(engine.init()).rejects.toThrow();
 
-    // the outermost gate must run before ANY insert-on-first-sight
+    // the denylist gate must run before the cert insert
     expect(mock.store.delegation_certificates).toHaveLength(0);
-    expect(mock.store.agent_registry).toHaveLength(1); // only the seeded denylist row
+    expect(mock.store.agent_registry).toHaveLength(1); // the pre-provisioned, now-denylisted row
   });
 
   // --- the regression that motivated this gate -------------------------------

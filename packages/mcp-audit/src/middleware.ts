@@ -131,6 +131,21 @@ export class AuditEngine {
       .eq('agent_pk', this.agentPk)
       .single();
 
+    // A2 (grafomem decision 0006, accepted 2026-09-02): an agent absent from agent_registry is
+    // DENIED, not permitted. Previously a zero-row result fell through to allowed — a fail-open that
+    // was load-bearing for the insert-on-first-sight bootstrap removed below; rows now come from
+    // explicit provisioning BEFORE the first audited op. "unregistered" and "revoked" are DIFFERENT
+    // facts — a distinct violation_type + reason so a consumer can tell them apart.
+    if (!agentRow) {
+      const detail = 'Agent is not registered (no agent_registry row)';
+      await this.logViolation({
+        type: 'unregistered_agent',
+        description: `AUDIT_INIT: ${detail}`,
+        severity: 'critical',
+      });
+      throw new Error(`AUDIT_INIT: ${detail}`);
+    }
+
     this.agentRevokedAt =
       (agentRow as { revoked_at?: string | null } | null)?.revoked_at ?? null;
     const agentRevocation = checkRevocation(this.agentRevokedAt);
@@ -181,24 +196,12 @@ export class AuditEngine {
       });
     }
 
-    // Ensure agent is registered
-    const { data: agent } = await this.supabase
-      .from('agent_registry')
-      .select('agent_pk, breadcrumb_count')
-      .eq('agent_pk', this.agentPk)
-      .single();
-
-    if (!agent) {
-      await this.supabase.from('agent_registry').insert({
-        agent_pk: this.agentPk,
-        handle: this.config.defaultFacet,
-        display_name: `GEIANT Agent ${this.agentPk.substring(0, 8)}`,
-        current_tier: 'provisioned',
-        active_cert_hash: this.certHash,
-        breadcrumb_count: 0,
-        trust_score: 0,
-      });
-    }
+    // NOTE: the agent_registry insert-on-first-sight ("auto-self-registration") was REMOVED here
+    // under A2 (grafomem 0006). It ran after the gate above, so it can no longer be reached for a
+    // new agent — the gate now denies a missing row. Agents are registered by explicit provisioning
+    // BEFORE their first audited op (the rotation runbook creates the row up front), not by their
+    // own first appearance. The revocation gate is the single source of truth for "is this agent
+    // known and permitted?".
 
     // Load chain tip — get the latest block for this agent
     const { data: latestBlock } = await this.supabase
