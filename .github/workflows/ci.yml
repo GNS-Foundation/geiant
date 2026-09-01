@@ -7,11 +7,17 @@ on:
     branches: [main]
 
 jobs:
-  # GATING job — this is what branch protection requires. Hermetic: @geiant/core
-  # tests are pure TS + crypto + committed fixtures (no Supabase/Postgres). Scoped
-  # to the core package so a half-built sibling can't block the CGR gate. The
-  # highest-value thing it protects is the cgr_attestation_*_jcs.golden.json
-  # byte-parity contract — a canonicalize/@noble bump that breaks JCS fails here.
+  # GATING job — this is what branch protection requires (required context:
+  # `core (22)`). Hermetic on both packages it gates: @geiant/core is pure TS +
+  # crypto + committed fixtures, and @geiant/mcp-audit's tests use a MOCKED Supabase
+  # client (no network/DB) — so neither can fail intermittently. The job NAME stays
+  # `core` on purpose: the required-check context is `core (22)`, so adding a package
+  # here needs no branch-protection settings change (renaming the job would).
+  # Protects the cgr_attestation_*_jcs.golden.json byte-parity contract (a
+  # canonicalize/@noble bump that breaks JCS fails here) AND the security control in
+  # @geiant/mcp-audit: revocation enforcement (#9), the middleware gates, and the
+  # cert-hash regression (#10) — so a regression there blocks merge instead of
+  # showing as a non-blocking annotation.
   core:
     runs-on: ubuntu-latest
     strategy:
@@ -43,6 +49,15 @@ jobs:
 
       - name: Test @geiant/core
         run: pnpm --filter @geiant/core test
+
+      # @geiant/mcp-audit — gated alongside core (hermetic; mocked Supabase). Its
+      # typecheck script is named `lint` (tsc --noEmit), so it can't share core's
+      # `typecheck` filter — hence its own steps rather than a combined --filter.
+      - name: Typecheck @geiant/mcp-audit
+        run: pnpm --filter @geiant/mcp-audit lint
+
+      - name: Test @geiant/mcp-audit
+        run: pnpm --filter @geiant/mcp-audit test
 
   # NON-GATING full-workspace job (mirrors grafomem's DESCOPED `test-runtime`).
   # Builds/tests every package incl. packages/mcp-postgis (native gdal-async, kept
