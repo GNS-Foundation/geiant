@@ -16,6 +16,11 @@
 import nacl from 'tweetnacl';
 import * as fs from 'fs';
 import * as path from 'path';
+// canonicalJson + the cert-hash primitive are imported from the package (src/chain),
+// NOT re-implemented here. A divergent local copy was the root cause of
+// GNS-Foundation/geiant#10: this script printed a truncated-SHA-512 hash while the
+// runtime computed real SHA-256, so one certificate had two hashes.
+import { canonicalJson, hashDelegationCert } from '../src/chain';
 
 // ---- Utilities (inline to keep script self-contained) ----
 
@@ -28,20 +33,6 @@ function hexToBytes(hex: string): Uint8Array {
   for (let i = 0; i < hex.length; i += 2)
     b[i / 2] = parseInt(hex.substring(i, i + 2), 16);
   return b;
-}
-
-function canonicalJson(obj: unknown): string {
-  if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
-  if (Array.isArray(obj)) return '[' + obj.map(canonicalJson).join(',') + ']';
-  const keys = Object.keys(obj as Record<string, unknown>).sort();
-  const pairs = keys.map(k => `"${k}":${canonicalJson((obj as Record<string, unknown>)[k])}`);
-  return '{' + pairs.join(',') + '}';
-}
-
-function sha256Hex(data: string): string {
-  const encoder = new TextEncoder();
-  const full = nacl.hash(encoder.encode(data));
-  return bytesToHex(full.slice(0, 32));
 }
 
 // ---- Configuration ----
@@ -67,7 +58,7 @@ const ALLOWED_TOOLS = [
 
 // ---- Main ----
 
-function main() {
+async function main() {
   console.log('===========================================');
   console.log('GEIANT Agent Setup — Phase 5.1.1');
   console.log('===========================================\n');
@@ -152,7 +143,10 @@ function main() {
   );
   console.log(`   Signature valid: ${verified ? '✅' : '❌'}`);
 
-  const certHash = sha256Hex(dataToSign);
+  // Compute the cert hash with the SAME runtime function the middleware uses
+  // (hashDelegationCert -> real SHA-256), so setup-agent and runtime cannot disagree.
+  // Root cause of GNS-Foundation/geiant#10 was a divergent local SHA-512-trunc hash here.
+  const certHash = await hashDelegationCert(cert);
   console.log(`   Cert hash: ${certHash.substring(0, 16)}...`);
   console.log(`   Valid: ${notBefore} → ${notAfter}`);
   console.log(`   H3 cells: ${cert.h3_cells.join(', ')}`);
@@ -219,4 +213,7 @@ GEIANT_DEFAULT_H3_RES=5
   };
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

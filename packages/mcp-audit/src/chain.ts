@@ -48,14 +48,10 @@ export async function sha256Hex(data: string): Promise<string> {
   return bytesToHex(full.slice(0, 32));
 }
 
-/**
- * Synchronous SHA-256 for hot paths (uses tweetnacl fallback).
- * Prefer async sha256Hex when possible.
- */
-export function sha256HexSync(data: string): string {
-  const full = nacl.hash(encoder.encode(data));
-  return bytesToHex(full.slice(0, 32));
-}
+// NOTE: a `sha256HexSync` helper used to live here. It was nacl.hash (SHA-512)
+// truncated to 32 bytes — NOT SHA-256, despite the name — and had no production
+// caller (only a determinism test). It was the sibling of the GNS-Foundation/geiant#10
+// cert-hash bug, so it was removed. Use the async `sha256Hex` (real SHA-256) instead.
 
 // ===========================================
 // Canonical JSON (matches gns-node/crypto.ts)
