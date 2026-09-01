@@ -49,6 +49,28 @@ export {
 } from './agent/cgr.js';
 export type { VerifyOptions as CGRVerifyOptions, VerifyResult as CGRVerifyResult } from './agent/cgr.js';
 
+// CGR v4 — relation edges, traversal, grounding gate, enforcing/non-enforcing modes.
+// Enforcing mode requires an injected `seek`; @geiant/core ships no store-backed seek (decision 0007).
+export {
+  verifyCGRAttestationV4,
+  attestationFingerprintV4,
+  CGR_ATTESTATION_SCHEMA_V4,
+  GROUNDING_DIMENSIONS,
+} from './agent/cgr_v4.js';
+export type {
+  CGRAttestationV4,
+  RelationEdge,
+  RelationTarget,
+  RelationType,
+  TargetKind,
+  LineageStatus,
+  V4Mode,
+  V4Ledger,
+  SeekFn,
+  VerifyV4Options,
+  VerifyV4Result,
+} from './agent/cgr_v4.js';
+
 // Geometry validation
 export {
   validateGeometries,
