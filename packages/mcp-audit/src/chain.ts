@@ -48,14 +48,10 @@ export async function sha256Hex(data: string): Promise<string> {
   return bytesToHex(full.slice(0, 32));
 }
 
-/**
- * Synchronous SHA-256 for hot paths (uses tweetnacl fallback).
- * Prefer async sha256Hex when possible.
- */
-export function sha256HexSync(data: string): string {
-  const full = nacl.hash(encoder.encode(data));
-  return bytesToHex(full.slice(0, 32));
-}
+// NOTE: a `sha256HexSync` helper used to live here. It was nacl.hash (SHA-512)
+// truncated to 32 bytes — NOT SHA-256, despite the name — and had no production
+// caller (only a determinism test). It was the sibling of the GNS-Foundation/geiant#10
+// cert-hash bug, so it was removed. Use the async `sha256Hex` (real SHA-256) instead.
 
 // ===========================================
 // Canonical JSON (matches gns-node/crypto.ts)
@@ -144,6 +140,42 @@ export function checkFacet(
   return {
     allowed,
     reason: allowed ? undefined : `Facet "${facet}" not in delegation scope`,
+  };
+}
+
+/**
+ * Revocation gate.
+ *
+ * `revoked_at` lives on the `delegation_certificates` row, not inside the signed
+ * certificate — a cert cannot revoke itself, so the timestamp is read from the
+ * registry and passed in here. Fails closed: an unparseable timestamp is treated
+ * as revoked rather than ignored.
+ *
+ * A future-dated `revoked_at` is honoured only once reached, mirroring the
+ * `not_before` semantics in isDelegationCertActive().
+ */
+export function checkRevocation(
+  revokedAt: string | null | undefined,
+  now?: Date,
+): { allowed: boolean; reason?: string; revoked_at?: string } {
+  if (revokedAt === null || revokedAt === undefined || revokedAt === '') {
+    return { allowed: true };
+  }
+  const revoked = new Date(revokedAt);
+  if (Number.isNaN(revoked.getTime())) {
+    return {
+      allowed: false,
+      reason: `Delegation certificate has an unreadable revoked_at value ("${revokedAt}")`,
+    };
+  }
+  const ref = now ?? new Date();
+  if (revoked.getTime() > ref.getTime()) {
+    return { allowed: true };
+  }
+  return {
+    allowed: false,
+    reason: `Delegation certificate was revoked at ${revoked.toISOString()}`,
+    revoked_at: revoked.toISOString(),
   };
 }
 

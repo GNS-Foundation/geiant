@@ -9,7 +9,6 @@ import {
   hexToBytes,
   bytesToHex,
   sha256Hex,
-  sha256HexSync,
   canonicalJson,
   hashDelegationCert,
   verifyDelegationCert,
@@ -110,9 +109,9 @@ describe('SHA-256', () => {
     expect(/^[0-9a-f]{64}$/.test(h)).toBe(true);
   });
 
-  it('3: sha256HexSync produces deterministic output', () => {
-    const a = sha256HexSync('test');
-    const b = sha256HexSync('test');
+  it('3: sha256Hex produces deterministic output', async () => {
+    const a = await sha256Hex('test');
+    const b = await sha256Hex('test');
     expect(a).toBe(b);
     expect(a).toHaveLength(64);
   });
