@@ -143,6 +143,42 @@ export function checkFacet(
   };
 }
 
+/**
+ * Revocation gate.
+ *
+ * `revoked_at` lives on the `delegation_certificates` row, not inside the signed
+ * certificate — a cert cannot revoke itself, so the timestamp is read from the
+ * registry and passed in here. Fails closed: an unparseable timestamp is treated
+ * as revoked rather than ignored.
+ *
+ * A future-dated `revoked_at` is honoured only once reached, mirroring the
+ * `not_before` semantics in isDelegationCertActive().
+ */
+export function checkRevocation(
+  revokedAt: string | null | undefined,
+  now?: Date,
+): { allowed: boolean; reason?: string; revoked_at?: string } {
+  if (revokedAt === null || revokedAt === undefined || revokedAt === '') {
+    return { allowed: true };
+  }
+  const revoked = new Date(revokedAt);
+  if (Number.isNaN(revoked.getTime())) {
+    return {
+      allowed: false,
+      reason: `Delegation certificate has an unreadable revoked_at value ("${revokedAt}")`,
+    };
+  }
+  const ref = now ?? new Date();
+  if (revoked.getTime() > ref.getTime()) {
+    return { allowed: true };
+  }
+  return {
+    allowed: false,
+    reason: `Delegation certificate was revoked at ${revoked.toISOString()}`,
+    revoked_at: revoked.toISOString(),
+  };
+}
+
 export function checkToolAllowed(
   toolName: string,
   cert: DelegationCertificate,
