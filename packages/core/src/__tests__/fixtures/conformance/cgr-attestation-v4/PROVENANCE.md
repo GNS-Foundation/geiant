@@ -8,7 +8,7 @@ run against.
 |---|---|
 | Source repo | `GNS-Foundation/grafomem` |
 | Source path | `conformance/cgr-attestation-v4/vectors.json` |
-| Source commit | `e98570e0719a...` (grafomem `main`; the domain-gate + 0002 sweep corpus, PR #102 merged) |
+| Source commit | `85fc772553b5...` (grafomem `main`; the temporal resolution, PR #104 merged) |
 | Vectors | 56 (54 enforcing, 2 non-enforcing) |
 | Vendored | 2026-09-03 |
 
