@@ -130,6 +130,9 @@ describe('cgr.attestation.v4 corpus — 38 vectors, both modes', () => {
     if ('superseded' in exp) {
       expect(res.superseded, `${vec.id}: superseded mismatch — ${JSON.stringify(res)}`).toBe(exp.superseded);
     }
+    if ('evidence_tier' in exp) {
+      expect(res.evidence_tier, `${vec.id}: evidence_tier mismatch — ${JSON.stringify(res)}`).toBe(exp.evidence_tier);
+    }
     if ('reason_contains' in exp && !exp.valid) {
       expect(res.reason ?? '', `${vec.id}: reason should contain '${exp.reason_contains}' — ${JSON.stringify(res)}`).toContain(
         exp.reason_contains,

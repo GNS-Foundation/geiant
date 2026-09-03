@@ -64,6 +64,7 @@ export type {
   RelationType,
   TargetKind,
   LineageStatus,
+  EvidenceTier,
   V4Mode,
   V4Ledger,
   SeekFn,
