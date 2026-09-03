@@ -8,11 +8,9 @@ run against.
 |---|---|
 | Source repo | `GNS-Foundation/grafomem` |
 | Source path | `conformance/cgr-attestation-v4/vectors.json` |
-| Source commit | `71973bc4104c...` (grafomem `docs/domain-conditional`; the domain-gate + 0002 sweep corpus, PR #102) |
+| Source commit | `e98570e0719a...` (grafomem `main`; the domain-gate + 0002 sweep corpus, PR #102 merged) |
 | Vectors | 56 (54 enforcing, 2 non-enforcing) |
 | Vendored | 2026-09-03 |
-
-> Vendored from an **unmerged** branch (PR #102). Re-sync at the merged `main` SHA once #102 lands.
 
 The only local modification is an added top-level `_provenance` key (this metadata); the
 `vectors` array and all corpus keys are byte-for-byte upstream.
