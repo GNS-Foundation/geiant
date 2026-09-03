@@ -94,3 +94,24 @@ jobs:
 
       - name: Test all packages
         run: pnpm -r test
+
+  # FULL-TREE secret scan on every run (geiant is public). Mirrors grafomem: gitleaks defaults
+  # + a structural connection-string rule (.gitleaks.toml), scanning the ENTIRE working tree at
+  # HEAD, not a diff. Full-HISTORY runs weekly (secret-history-scan.yml) against a pinned baseline.
+  # NOTE: to gate merges, add `secret-scan` to branch protection's required checks.
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install gitleaks
+        run: |
+          VERSION=8.30.1
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Full-tree secret scan (entire HEAD, not just the diff)
+        run: |
+          set -euo pipefail
+          gitleaks dir . --config .gitleaks.toml --no-banner --redact --exit-code 1
