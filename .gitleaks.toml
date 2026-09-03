@@ -1,0 +1,51 @@
+title = "geiant secret rules"
+
+# geiant is PUBLIC. This mirrors the grafomem scanning posture: gitleaks' curated default
+# ruleset (AWS/GCP/GitHub tokens, private keys, …) PLUS a STRUCTURAL connection-string rule that
+# is not keyword-anchored — the class that let a plain `postgresql://user:pass@host` sit unnoticed
+# in a sibling repo for three months. Scanning is FULL-TREE on every CI run (see ci.yml) and
+# FULL-HISTORY on a weekly schedule against a pinned baseline (see secret-history-scan.yml).
+#
+# geiant carries no grafomem-specific secrets (no Fernet/provider-encryption key, no GRAFOMEM_MASTER_KEY),
+# so those grafomem traps are intentionally absent here.
+[extend]
+useDefault = true
+
+# ── STRUCTURAL: credentialed DB/broker connection string (scheme://user:pass@routable-host). ──
+# Scoped to a routable host (an FQDN — has a dot) so local-dev / compose / placeholder strings
+# stay silent (single-label hosts, loopback, and placeholder passwords are allow-listed below).
+[[rules]]
+id = "geiant-db-connection-uri"
+description = "Credentialed connection string (scheme://user:password@routable-host)"
+regex = '''(?i)\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss|amqps?|clickhouse|mssql|cockroachdb)://[^\s:/@'"]+:[^\s:/@'"]{4,}@[^\s/@'"]+'''
+[rules.allowlist]
+regexTarget = "match"
+regexes = [
+  '''@[A-Za-z0-9_-]+(?::\d+)?(?:/|$)''',                     # single-label host (compose service / placeholder)
+  '''@(?:localhost|127\.0\.0\.1|0\.0\.0\.0|::1)\b''',        # loopback / any-address
+  '''://[^\s:/@]+:(?:password|passwd|pass|changeme|change-me|secret|example|placeholder|test|xxx+|\*+|your[_-]?password)@''',
+  '''\$\{''',
+  '''%\([a-z_]+\)s''',
+  '''<[A-Za-z_]+>''',
+]
+
+[allowlist]
+# The CGR golden fixtures and the vendored conformance corpus contain ONLY public cryptographic
+# material by design — issuer/subject Ed25519 PUBLIC keys, did:key ids, detached signatures —
+# needed so a verifier can reproduce the wire offline. No private key / signing seed is committed
+# (the deterministic test seed lives in grafomem's generate.py, never in the JSON). Plus build
+# output and the scheduled-scan baseline (redacted finding metadata).
+description = "CGR public-key golden fixtures + vendored conformance corpus + build output + baseline"
+paths = [
+  '''\.(png|jpe?g|gif|pdf|ipynb|parquet|bin|whl|so|dylib)$''',
+  '''cgr_[a-z0-9_]*jcs\.golden\.json$''',
+  '''fixtures/conformance/cgr-attestation-v[0-9]+/(vectors|PROVENANCE)[^/]*$''',
+  '''(^|/)dist/''',
+  '''(^|/)\.gitleaks-baseline\.json$''',
+]
+# Documentation placeholder tokens (e.g. `Authorization: Bearer YOUR_API_KEY` in quick-start curl
+# examples) — obvious non-secrets, pinned by placeholder shape, not by file.
+regexes = [
+  '''\bYOUR_[A-Z_]+\b''',
+  '''Bearer\s+(?:<[^>]+>|\$\{?[A-Za-z_]+\}?|YOUR_[A-Z_]+|TOKEN|API[_-]?KEY|PASTE[A-Z_]*)''',
+]
