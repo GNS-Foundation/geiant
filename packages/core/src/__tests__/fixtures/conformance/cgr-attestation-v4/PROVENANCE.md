@@ -8,8 +8,8 @@ run against.
 |---|---|
 | Source repo | `GNS-Foundation/grafomem` |
 | Source path | `conformance/cgr-attestation-v4/vectors.json` |
-| Source commit | `612df25e5046861c4cf1543cf68dbf6f850b90df` (grafomem main; the #97 evidence_tier corpus) |
-| Vectors | 44 (42 enforcing, 2 non-enforcing) |
+| Source commit | `e98570e0719a...` (grafomem `main`; the domain-gate + 0002 sweep corpus, PR #102 merged) |
+| Vectors | 56 (54 enforcing, 2 non-enforcing) |
 | Vendored | 2026-09-03 |
 
 The only local modification is an added top-level `_provenance` key (this metadata); the

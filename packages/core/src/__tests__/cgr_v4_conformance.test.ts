@@ -5,7 +5,7 @@
 // fixtures/conformance/cgr-attestation-v4/PROVENANCE.md) against @geiant/core's v4 verifier.
 // Two layers, mirroring grafomem's tests/test_v4_conformance.py:
 //   1. wellformed self-check — guards the vendored corpus against rot/drift (always runs).
-//   2. the 38 vectors — driven in-process with an in-memory `seek` (mirrors bin/verify-v4.mjs).
+//   2. the 56 vectors — driven in-process with an in-memory `seek` (mirrors bin/verify-v4.mjs).
 // Plus unit tests for the mode/seek contract and the absent-entirely stance (decision 0007).
 // =============================================================================
 
@@ -113,8 +113,8 @@ describe('cgr.attestation.v4 corpus — wellformed (vendored self-check)', () =>
   });
 });
 
-// ── Layer 2: run all 38 vectors in their declared modes ──────────────────────
-describe('cgr.attestation.v4 corpus — 38 vectors, both modes', () => {
+// ── Layer 2: run all 56 vectors in their declared modes ──────────────────────
+describe('cgr.attestation.v4 corpus — 56 vectors, both modes', () => {
   it.each(VECTORS.map((v) => [v.id, v] as const))('%s', async (_id, vec) => {
     const seek = makeSeek(vec.ledger, vec.seek_fails ?? false);
     const res = await verifyCGRAttestationV4(vec.subject, vec.ledger, vec.pinned_issuer, {
