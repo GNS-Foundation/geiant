@@ -34,6 +34,8 @@ const HASH_ALG_FOR_KIND: Record<string, string> = {
 };
 const HEX64 = /^[0-9a-f]{64}$/;
 const MAX_DEPTH = 64; // §1.3 (the pinned floor)
+// §1.1 evidence_tier — closed vocabulary; REQUIRED on continues, MUST be absent on supersedes/revokes.
+const EVIDENCE_TIERS = new Set(['custody_record', 'issuer_records', 'operator_verification']);
 
 export type RelationType = 'continues' | 'supersedes' | 'revokes';
 export type TargetKind = 'attestation' | 'delegation_cert';
@@ -42,6 +44,8 @@ export type LineageStatus =
   | 'truncated_unavailable'
   | 'truncated_depth'
   | 'anomaly_cycle';
+/** §1.1 authority tier that substantiated a `continues` edge — closed vocab, descending strength. */
+export type EvidenceTier = 'custody_record' | 'issuer_records' | 'operator_verification';
 export type V4Mode = 'enforcing' | 'non-enforcing';
 
 export interface RelationTarget {
@@ -52,6 +56,8 @@ export interface RelationTarget {
 export interface RelationEdge {
   type: RelationType | string;
   target: RelationTarget;
+  /** §1.1 REQUIRED on continues (closed vocab), MUST be absent on supersedes/revokes. */
+  evidence_tier?: EvidenceTier | string;
 }
 
 /** A v4 attestation. Field-shape-agnostic for signing (whole non-envelope body is canonicalized),
@@ -100,6 +106,9 @@ export interface VerifyV4Result {
   lineage_status?: LineageStatus;
   /** Present only when true (signature-valid but not current). Distinct from valid:false. */
   superseded?: boolean;
+  /** §1.1 the authority tier the Foundation attests substantiated the subject's `continues` edge —
+   *  SURFACED, not gated. Present when a continues edge exists. A recorded claim, not proof. */
+  evidence_tier?: EvidenceTier;
 }
 
 /** BLAKE2b-256 fingerprint of an attestation's canonical signed body (§1.1). */
@@ -228,6 +237,13 @@ export async function verifyCGRAttestationV4(
       return fail(`hash_alg ${t.hash_alg} invalid for kind ${t.kind}`);
     if (typeof t.hash !== 'string' || !HEX64.test(t.hash))
       return fail(`malformed target hash for ${t.hash_alg}`);
+    // §1.1 evidence_tier: REQUIRED on continues (closed vocab); MUST be absent on supersedes/revokes.
+    if (e.type === 'continues') {
+      if (e.evidence_tier === undefined) return fail('continues edge missing evidence_tier');
+      if (!EVIDENCE_TIERS.has(e.evidence_tier as string)) return fail(`invalid evidence_tier: ${e.evidence_tier}`);
+    } else if (e.evidence_tier !== undefined) {
+      return fail('evidence_tier is only valid on continues edges');
+    }
   }
   // multiplicity (§1.1): exact duplicate → reject; >1 continues → reject
   const seen = new Set<string>();
@@ -282,5 +298,8 @@ export async function verifyCGRAttestationV4(
   };
   if (tr.lineage_status) out.lineage_status = tr.lineage_status;
   if (superseded) out.superseded = true;
+  // §1.1 surface the continues edge's evidence_tier (recorded, non-gating; at most one continues).
+  const continuesEdge = edges.find((e) => e.type === 'continues');
+  if (continuesEdge) out.evidence_tier = continuesEdge.evidence_tier as EvidenceTier;
   return out;
 }
