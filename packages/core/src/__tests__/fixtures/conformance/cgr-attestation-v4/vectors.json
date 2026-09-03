@@ -3,7 +3,7 @@
   "_comment": "VENDORED COPY — do not edit by hand. Sync from source; see PROVENANCE.md.",
   "source_repo": "GNS-Foundation/grafomem",
   "source_path": "conformance/cgr-attestation-v4/vectors.json",
-  "source_sha": "944dd74bcfeaf5d09d60302bcccb7c8986f4c6b7",
+  "source_sha": "85fc772553b50c36b347113ea071a4e21419c9dc",
   "vendored_at": "2026-09-03",
   "upstream_vector_count": 56
  },
