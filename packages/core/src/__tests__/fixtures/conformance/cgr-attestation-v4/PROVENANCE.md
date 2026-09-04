@@ -8,8 +8,8 @@ run against.
 |---|---|
 | Source repo | `GNS-Foundation/grafomem` |
 | Source path | `conformance/cgr-attestation-v4/vectors.json` |
-| Source commit | `85fc772553b5...` (grafomem `main`; the temporal resolution, PR #104 merged) |
-| Vectors | 56 (54 enforcing, 2 non-enforcing) |
+| Source commit | `241a6413ce86...` (grafomem `corpus/continues-cert-vectors`; continues->delegation_cert vectors, PR #111) |
+| Vectors | 58 (56 enforcing, 2 non-enforcing) |
 | Vendored | 2026-09-03 |
 
 The only local modification is an added top-level `_provenance` key (this metadata); the
@@ -35,3 +35,5 @@ node scripts/sync-corpus.mjs   # re-copies from a pinned grafomem checkout, upda
 Then re-run `npm test` — the wellformed self-check re-validates the corpus's internal invariants
 (signatures verify against the pinned issuer, T2≠T8 distinct lineage_status, both modes present,
 count matches `upstream_vector_count`).
+
+> Vendored from an **unmerged** branch (PR #111). Re-sync at the merged `main` SHA once #111 lands.
