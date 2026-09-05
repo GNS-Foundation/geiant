@@ -8,7 +8,7 @@ run against.
 |---|---|
 | Source repo | `GNS-Foundation/grafomem` |
 | Source path | `conformance/cgr-attestation-v4/vectors.json` |
-| Source commit | `241a6413ce86...` (grafomem `corpus/continues-cert-vectors`; continues->delegation_cert vectors, PR #111) |
+| Source commit | `4b55b2581599...` (grafomem `main`; continues->delegation_cert vectors, PR #111 merged) |
 | Vectors | 58 (56 enforcing, 2 non-enforcing) |
 | Vendored | 2026-09-03 |
 
@@ -36,4 +36,3 @@ Then re-run `npm test` — the wellformed self-check re-validates the corpus's i
 (signatures verify against the pinned issuer, T2≠T8 distinct lineage_status, both modes present,
 count matches `upstream_vector_count`).
 
-> Vendored from an **unmerged** branch (PR #111). Re-sync at the merged `main` SHA once #111 lands.
